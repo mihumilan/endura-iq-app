@@ -1,0 +1,9 @@
+streamlit==1.31.0
+pandas
+numpy
+plotly
+fpdf
+streamlit-calendar
+pymongo
+dnspython
+certifi
