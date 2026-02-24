@@ -12,7 +12,7 @@ import struct
 import time
 import unicodedata
 from streamlit_calendar import calendar
-
+st.set_page_config(page_title="Endura IQ", layout="wide", initial_sidebar_state="expanded")
 # --- NOWOŚĆ: MODUŁ BAZY DANYCH MONGODB (CLOUD) ---
 import pymongo
 import urllib.parse
@@ -53,7 +53,7 @@ db = MongoDBWrapper(mongo_client)
 # ==========================================
 # 1. KONFIGURACJA, TŁUMACZENIA I CSS
 # ==========================================
-st.set_page_config(page_title="Endura IQ", layout="wide", initial_sidebar_state="expanded")
+
 
 if 'lang' not in st.session_state: st.session_state.lang = 'PL'
 
