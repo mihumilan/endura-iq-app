@@ -121,7 +121,7 @@ TRANSLATIONS = {
         "Dodaj Trening do Planu": "Add Workout to Plan", "Zapisz Plan": "Save Plan", "Nazwa Planu (np. 4 tygodnie Baza)": "Plan Name (e.g., 4-week Base)",
         "Najpierw stwórz pojedyncze treningi (szablony) w zakładce Kreator.": "First, create individual workouts (templates) in the Builder tab.",
         "Komentarze do treningu": "Workout Comments", "Dodaj komentarz...": "Add a comment...", "Wyślij": "Send", "Interwały": "Intervals",
-        "Mapa trasy GPS": "GPS Route Map"
+        "Mapa trasy GPS": "GPS Route Map", "Lista aktywności": "Activity List"
     }
 }
 
@@ -819,56 +819,150 @@ elif menu == tr("Kalendarz"):
     target = ja if st.session_state.role != "coach" else st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY)
     u_strefy_cal = db["strefy"].get(target, {"ftp": 250, "lthr": 170})
 
-    col_c, col_s = st.columns([3, 1])
-    with col_c:
-        with st.expander(tr("Dodaj zawody / cel")):
-            with st.form("add_race_form"):
-                r_name = st.text_input(tr("Nazwa zawodów"), placeholder="Ironman Frankfurt")
-                r_date = st.date_input(tr("Data zawodów"), date.today() + timedelta(days=30))
-                if st.form_submit_button(tr("Dodaj Start")):
-                    db["wyscigi"] = list(db.get("wyscigi", [])) + [{"zawodnik": target, "nazwa": r_name, "data": str(r_date)}]
-                    st.success(tr("Dodano zawody!")); st.rerun()
+    # --- ZAKŁADKI: KALENDARZ I LISTA KART ---
+    tab_kalendarz, tab_lista = st.tabs([f"📅 {tr('Kalendarz')}", f"📋 {tr('Lista aktywności')}"])
 
-        if st.session_state.role == "coach":
-            with st.expander(tr("PANEL PLANOWANIA (TRENER)"), expanded=True):
-                with st.form("plan_workout"):
-                    c1, c2 = st.columns(2)
-                    def_date = date.today()
-                    if 'cal_click_date' in st.session_state and st.session_state.cal_click_date:
-                        try: def_date = datetime.strptime(st.session_state.cal_click_date, "%Y-%m-%d").date()
-                        except: pass
-                    p_date = c1.date_input(tr("Data"), def_date)
-                    p_sport = c2.selectbox(tr("Dyscyplina"), ["Bieganie", "Rower", "Pływanie", "Siłownia"], format_func=tr)
-                    opts = ["-- Własny --"] + [s['nazwa'] for s in db.get("biblioteka", [])]
-                    p_temp = st.selectbox(tr("Wczytaj Szablon"), opts, format_func=tr)
-                    def_title = f"{tr(p_sport)}"; def_time = 60; def_tss = 50; p_steps = []
-                    if p_temp != "-- Własny --":
-                        tmpl = next((x for x in db["biblioteka"] if x['nazwa']==p_temp), None)
-                        if tmpl: def_title = tmpl['nazwa']; def_time = sum([k['czas_total_sec'] for k in tmpl['kroki']]) // 60; p_steps = tmpl['kroki']
-                    p_title = st.text_input(tr("Tytuł"), value=def_title)
-                    c3, c4 = st.columns(2); p_time = c3.number_input(tr("Czas (min)"), value=def_time); p_tss = c4.number_input("Plan TSS", value=def_tss)
-                    p_desc = st.text_area(tr("Instrukcje dla zawodnika"))
-                    if st.form_submit_button(tr("Dodaj do Planu")):
-                        save_data({"zawodnik": target, "dyscyplina": p_sport, "data": str(p_date), "tytul": p_title, "komentarz": p_desc, "czas": p_time, "tss": p_tss, "wykonany": False, "kroki": p_steps})
-                        st.success(tr("Zaplanowano!")); st.session_state.cal_click_date = None; st.rerun()
+    with tab_kalendarz:
+        col_c, col_s = st.columns([3, 1])
+        with col_c:
+            with st.expander(tr("Dodaj zawody / cel")):
+                with st.form("add_race_form"):
+                    r_name = st.text_input(tr("Nazwa zawodów"), placeholder="Ironman Frankfurt")
+                    r_date = st.date_input(tr("Data zawodów"), date.today() + timedelta(days=30))
+                    if st.form_submit_button(tr("Dodaj Start")):
+                        db["wyscigi"] = list(db.get("wyscigi", [])) + [{"zawodnik": target, "nazwa": r_name, "data": str(r_date)}]
+                        st.success(tr("Dodano zawody!")); st.rerun()
 
-        events = przygotuj_kalendarz(target)
-        cal = calendar(events=events, options={"initialView": "dayGridMonth", "initialDate": str(date.today()), "firstDay": 1, "selectable": True, "dateClick": True, "height": 700}, key='cal_view', callbacks=['dateClick', 'eventClick'])
-        if cal.get("dateClick"):
-            selected = cal["dateClick"]["dateStr"]
-            if selected != st.session_state.get('cal_click_date'): st.session_state.cal_click_date = selected; st.rerun()
-        if cal.get("eventClick"):
-            props = cal["eventClick"]["event"].get("extendedProps", {})
-            if props.get("type") == "waga": st.info(f"{tr('Ważenie z dnia')} {props.get('data_str')}: **{props.get('waga')} kg**")
+            if st.session_state.role == "coach":
+                with st.expander(tr("PANEL PLANOWANIA (TRENER)"), expanded=True):
+                    with st.form("plan_workout"):
+                        c1, c2 = st.columns(2)
+                        def_date = date.today()
+                        if 'cal_click_date' in st.session_state and st.session_state.cal_click_date:
+                            try: def_date = datetime.strptime(st.session_state.cal_click_date, "%Y-%m-%d").date()
+                            except: pass
+                        p_date = c1.date_input(tr("Data"), def_date)
+                        p_sport = c2.selectbox(tr("Dyscyplina"), ["Bieganie", "Rower", "Pływanie", "Siłownia"], format_func=tr)
+                        opts = ["-- Własny --"] + [s['nazwa'] for s in db.get("biblioteka", [])]
+                        p_temp = st.selectbox(tr("Wczytaj Szablon"), opts, format_func=tr)
+                        def_title = f"{tr(p_sport)}"; def_time = 60; def_tss = 50; p_steps = []
+                        if p_temp != "-- Własny --":
+                            tmpl = next((x for x in db["biblioteka"] if x['nazwa']==p_temp), None)
+                            if tmpl: def_title = tmpl['nazwa']; def_time = sum([k['czas_total_sec'] for k in tmpl['kroki']]) // 60; p_steps = tmpl['kroki']
+                        p_title = st.text_input(tr("Tytuł"), value=def_title)
+                        c3, c4 = st.columns(2); p_time = c3.number_input(tr("Czas (min)"), value=def_time); p_tss = c4.number_input("Plan TSS", value=def_tss)
+                        p_desc = st.text_area(tr("Instrukcje dla zawodnika"))
+                        if st.form_submit_button(tr("Dodaj do Planu")):
+                            save_data({"zawodnik": target, "dyscyplina": p_sport, "data": str(p_date), "tytul": p_title, "komentarz": p_desc, "czas": p_time, "tss": p_tss, "wykonany": False, "kroki": p_steps})
+                            st.success(tr("Zaplanowano!")); st.session_state.cal_click_date = None; st.rerun()
+
+            events = przygotuj_kalendarz(target)
+            cal = calendar(events=events, options={"initialView": "dayGridMonth", "initialDate": str(date.today()), "firstDay": 1, "selectable": True, "dateClick": True, "height": 700}, key='cal_view', callbacks=['dateClick', 'eventClick'])
+            if cal.get("dateClick"):
+                selected = cal["dateClick"]["dateStr"]
+                if selected != st.session_state.get('cal_click_date'): st.session_state.cal_click_date = selected; st.rerun()
+            if cal.get("eventClick"):
+                props = cal["eventClick"]["event"].get("extendedProps", {})
+                if props.get("type") == "waga": st.info(f"{tr('Ważenie z dnia')} {props.get('data_str')}: **{props.get('waga')} kg**")
+                else:
+                    df_c = get_df(target); match_df = df_c[(df_c['data'].astype(str) == props.get('data_str')) & (df_c['dyscyplina'] == props.get('dyscyplina')) & (df_c['tytul'] == props.get('tytul'))]
+                    st.markdown("---")
+                    if not match_df.empty: 
+                        st.subheader(f"{tr('Szczegóły:')} {props.get('tytul')}")
+                        render_analysis_dashboard(match_df.iloc[0].to_dict(), u_strefy_cal)
+                    else: st.info(tr("Nie znaleziono szczegółów. Sprawdź listę zadań."))
+
+        with col_s: render_tp_weekly_list(get_df(target))
+
+    with tab_lista:
+        st.markdown(f"### 📋 {tr('Ostatnie Aktywności')}")
+        
+        # Wstrzykiwanie stylu tylko dla kart
+        st.markdown("""
+        <style>
+        .trening-karta {
+            background-color: #11151C; 
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            border-left: 5px solid #00E5FF; 
+            border-top: 1px solid #1F2735;
+            border-right: 1px solid #1F2735;
+            border-bottom: 1px solid #1F2735;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .trening-naglowek {
+            display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;
+        }
+        .trening-tytul {
+            font-size: 18px; font-weight: 800; color: #FFFFFF; margin-bottom: 2px;
+        }
+        .trening-data {
+            font-size: 13px; color: #8BA1B8;
+        }
+        .trening-trimp {
+            background-color: rgba(0, 229, 255, 0.15); 
+            color: #00E5FF; padding: 5px 12px; border-radius: 20px;
+            font-weight: 800; font-size: 14px; border: 1px solid rgba(0, 229, 255, 0.3);
+        }
+        .trening-statystyki {
+            display: flex; justify-content: space-between; font-size: 15px;
+            color: #E2E8F0; font-weight: 600;
+        }
+        .stat-item {
+            display: flex; flex-direction: column;
+        }
+        .stat-label {
+            font-size: 11px; color: #8BA1B8; text-transform: uppercase;
+            margin-bottom: 2px; font-weight: 600; letter-spacing: 0.5px;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+        def narysuj_karte(sport, data, dystans, czas, tss_val, ty_color="#00E5FF"):
+            html = f'''
+            <div class="trening-karta" style="border-left-color: {ty_color};">
+                <div class="trening-naglowek">
+                    <div>
+                        <div class="trening-tytul">{sport}</div>
+                        <div class="trening-data">{data}</div>
+                    </div>
+                    <div class="trening-trimp" style="color: {ty_color}; border-color: {ty_color}; background-color: {ty_color}20;">{tss_val} TSS</div>
+                </div>
+                <div class="trening-statystyki">
+                    <div class="stat-item"><span class="stat-label">{tr("Dystans")}</span><span>{dystans}</span></div>
+                    <div class="stat-item"><span class="stat-label">{tr("Czas")}</span><span>{czas}</span></div>
+                </div>
+            </div>
+            '''
+            st.markdown(html, unsafe_allow_html=True)
+
+        df_lista = get_df(target)
+        if not df_lista.empty:
+            # Filtrujemy tylko wykonane aktywności z bazy i sortujemy od najnowszego do najstarszego
+            df_lista = df_lista[df_lista['wykonany'] == True].sort_values('data', ascending=False)
+            
+            if df_lista.empty:
+                st.info(tr("Brak wykonanych aktywności."))
             else:
-                df_c = get_df(target); match_df = df_c[(df_c['data'].astype(str) == props.get('data_str')) & (df_c['dyscyplina'] == props.get('dyscyplina')) & (df_c['tytul'] == props.get('tytul'))]
-                st.markdown("---")
-                if not match_df.empty: 
-                    st.subheader(f"{tr('Szczegóły:')} {props.get('tytul')}")
-                    render_analysis_dashboard(match_df.iloc[0].to_dict(), u_strefy_cal)
-                else: st.info(tr("Nie znaleziono szczegółów. Sprawdź listę zadań."))
+                for idx, t_row in df_lista.iterrows():
+                    # Przypisanie ładnych ikon
+                    ikona_sport = "🏃" if t_row['dyscyplina'] == "Bieganie" else "🚴" if t_row['dyscyplina'] == "Rower" else "🏊" if t_row['dyscyplina'] == "Pływanie" else "🏋️"
+                    sport_txt = f"{ikona_sport} {tr(t_row['dyscyplina']).upper()}"
+                    
+                    kolor_dyscypliny = KOLORY_SPORT.get(t_row['dyscyplina'], "#00E5FF")
+                    dyst = f"{t_row.get('dystans', 0)} km"
+                    czs = format_czas(t_row.get('czas', 0))
+                    
+                    # Rysujemy piękną kartę:
+                    narysuj_karte(sport_txt, str(t_row['data']), dyst, czs, int(t_row.get('tss', 0)), kolor_dyscypliny)
+                    
+                    # A zaraz pod nią dodajemy rozwijaną lupkę z pełną analizą!
+                    with st.expander(f"🔍 {tr('Analiza')}: {t_row['tytul']}"):
+                        render_analysis_dashboard(t_row.to_dict(), u_strefy_cal)
+        else:
+            st.info(tr("Brak wykonanych aktywności."))
 
-    with col_s: render_tp_weekly_list(get_df(target))
 
 # --- 3. DASHBOARD ---
 elif menu == tr("Dashboard"):
@@ -1201,4 +1295,3 @@ elif menu == tr("Plany"):
 # --- 9. BAZA ---
 elif menu == tr("Baza"): 
     if st.button(tr("RESET DANYCH")): db["treningi"]=[]; db["run_records"]=[]; db["power_profile"]=[]; db["waga"]=[]; db["chat"]=[]; db["wyscigi"]=[]; db["plany"]=[]; st.session_state.session_treningi=[]; st.rerun()
-        
