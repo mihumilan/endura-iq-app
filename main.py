@@ -202,9 +202,11 @@ def calculate_compliance(df):
     if past.empty: return 0
     t = past[~past['wykonany']]['czas'].sum() + past[past['wykonany']]['czas'].sum()
     return int((past[past['wykonany']]['czas'].sum() / t) * 100) if t > 0 else 0
+
+# Zabezpieczono rzutowaniem float(z["max"]) aby wykres stref zawsze się rysował
 def calculate_time_in_zones_custom(stream, zone_defs, total_time_mins):
     if not stream or not zone_defs: return []
-    zs = [{"label": z["Strefa"], "max": z["Max"], "count": 0} for z in zone_defs]
+    zs = [{"label": z["Strefa"], "max": float(z["Max"]), "count": 0} for z in zone_defs]
     valid = [x for x in stream if x is not None]
     if not valid: return []
     for val in valid:
@@ -212,7 +214,8 @@ def calculate_time_in_zones_custom(stream, zone_defs, total_time_mins):
             if val <= z["max"]: z["count"] += 1; break
             elif i == len(zs)-1: z["count"] += 1
     t = len(valid)
-    return [{"label": z["label"], "mins": int(round((z["count"]/t) * total_time_mins)), "pct": (z["count"]/t)*100} for z in zs] if t > 0 else []
+    return [{"label": z["label"], "mins": round((z["count"]/t) * total_time_mins, 1), "pct": (z["count"]/t)*100} for z in zs] if t > 0 else []
+
 def pace_str_to_float(pace_str):
     try: p=pace_str.split(':'); return int(p[0])+int(p[1])/60.0
     except: return 0.0
@@ -224,17 +227,44 @@ def generuj_domyslne_strefy(ftp, lthr):
     h_zones = [{"Strefa": f"Z{i+1}", "Min": int(h_prev + (1 if i>0 else 0)), "Max": int(m*lthr)} for i, (m, h_prev) in enumerate(zip([0.81, 0.89, 0.93, 0.99, 1.02, 1.2], [0] + [int(x*lthr) for x in [0.81, 0.89, 0.93, 0.99, 1.02]]))]
     return pd.DataFrame(p_zones), pd.DataFrame(h_zones)
 
-def get_user_zones(zawodnik):
-    """Pobiera lub generuje i zapisuje domyślne strefy, by tabele zawsze były widoczne."""
+# Nowa, super bezpieczna funkcja stref obsługująca DYSCYPLINY!
+def get_user_zones(zawodnik, dyscyplina="Rower"):
     if isinstance(db["strefy"], list): db["strefy"] = {}
-    ud = db["strefy"].get(zawodnik, {})
-    if not ud.get("zones_pwr") or not ud.get("zones_hr"):
-        zp, zh = generuj_domyslne_strefy(ud.get("ftp", 250), ud.get("lthr", 170))
-        ud["zones_pwr"] = zp.to_dict('records')
-        ud["zones_hr"] = zh.to_dict('records')
-        ud["ftp"] = ud.get("ftp", 250)
-        ud["lthr"] = ud.get("lthr", 170)
-    return ud
+    all_zones = db["strefy"].get(zawodnik, {})
+    
+    # Migracja starej struktury (jeśli zawodnik miał płaskie strefy bez dyscyplin)
+    if "ftp" in all_zones and "Rower" not in all_zones:
+        old_ftp = all_zones.get("ftp", 250)
+        old_lthr = all_zones.get("lthr", 170)
+        old_zp = all_zones.get("zones_pwr")
+        old_zh = all_zones.get("zones_hr")
+        if not old_zp or not old_zh:
+            zp, zh = generuj_domyslne_strefy(old_ftp, old_lthr)
+            old_zp = zp.to_dict('records'); old_zh = zh.to_dict('records')
+        
+        migrated_zones = {
+            "Rower": {"ftp": old_ftp, "lthr": old_lthr, "zones_pwr": old_zp, "zones_hr": old_zh},
+            "Bieganie": {"ftp": old_ftp, "lthr": old_lthr, "zones_pwr": old_zp, "zones_hr": old_zh},
+            "Pływanie": {"ftp": old_ftp, "lthr": old_lthr, "zones_pwr": old_zp, "zones_hr": old_zh},
+            "Siłownia": {"ftp": old_ftp, "lthr": old_lthr, "zones_pwr": old_zp, "zones_hr": old_zh},
+            "Inne": {"ftp": old_ftp, "lthr": old_lthr, "zones_pwr": old_zp, "zones_hr": old_zh}
+        }
+        temp_db = db["strefy"]
+        temp_db[zawodnik] = migrated_zones
+        db["strefy"] = temp_db
+        all_zones = migrated_zones
+        
+    disc_zones = all_zones.get(dyscyplina, {})
+    if not disc_zones:
+        zp, zh = generuj_domyslne_strefy(250, 170)
+        disc_zones = {"ftp": 250, "lthr": 170, "zones_pwr": zp.to_dict('records'), "zones_hr": zh.to_dict('records')}
+        
+        temp_db = db["strefy"]
+        if zawodnik not in temp_db: temp_db[zawodnik] = {}
+        temp_db[zawodnik][dyscyplina] = disc_zones
+        db["strefy"] = temp_db
+        
+    return disc_zones
 
 def update_athlete_records(zawodnik, workout_data):
     if not workout_data.get('wykonany'): return
@@ -396,7 +426,7 @@ def create_weekly_pdf(zawodnik, week_data, week_num, year, coach_note):
     if coach_note: pdf.ln(10); pdf.set_font('Arial', 'B', 11); pdf.set_text_color(0, 150, 0); pdf.cell(0, 10, "Coach Note:", 0, 1, 'L'); pdf.set_font('Arial', 'I', 10); pdf.set_text_color(0); pdf.multi_cell(0, 8, coach_note)
     return pdf.output(dest='S').encode('latin-1')
 
-def parse_tcx_pro(uploaded_file, user_ftp=250, user_lthr=170):
+def parse_tcx_pro(uploaded_file, athlete_all_zones):
     res = { "dist": 0.0, "tss": 0, "time": 0, "date": date.today(), "sport": "Inne", "avg_power": 0, "streams": {"time":[],"hr":[],"watts":[],"speed":[],"cadence":[],"lat":[],"lon":[]}, "laps": [], "peak_powers": {}, "best_times": {} }
     try:
         tree = ET.parse(uploaded_file); root = tree.getroot(); total_s = 0.0; total_m = 0.0; raw_real_s = []; raw_dist = []
@@ -409,6 +439,16 @@ def parse_tcx_pro(uploaded_file, user_ftp=250, user_lthr=170):
             if elem.tag.endswith("Id"):
                 try: res["date"] = datetime.strptime(elem.text.strip()[:10], "%Y-%m-%d").date()
                 except: pass
+                
+        # Inteligentne pobieranie FTP i LTHR dla wykrytej dyscypliny
+        disc_zones = athlete_all_zones.get(res["sport"], {})
+        user_ftp = disc_zones.get("ftp", 250) if isinstance(disc_zones, dict) else 250
+        user_lthr = disc_zones.get("lthr", 170) if isinstance(disc_zones, dict) else 170
+        # Obsługa starego formatu (migracja)
+        if "ftp" in athlete_all_zones and res["sport"] not in athlete_all_zones:
+            user_ftp = athlete_all_zones.get("ftp", 250)
+            user_lthr = athlete_all_zones.get("lthr", 170)
+            
         lap_c = 1; el_s = 0; hr_s = 0; hr_c = 0; pw_s = 0; pw_c = 0; active_time = 0; start_time_dt = None
         for lap in root.iter():
             if lap.tag.endswith("Lap"):
@@ -612,24 +652,26 @@ def render_analysis_dashboard(t, user_settings):
         fig.update_layout(template="plotly_dark", height=500, showlegend=False, margin=dict(l=50,r=10,t=30,b=10), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig, use_container_width=True)
 
-        # --- DODANE POWROTEM: WYKRES CZASU W STREFACH ---
+        # --- NAPRAWIONY WYKRES CZASU W STREFACH ---
         if streams and (any(streams.get('hr', [])) or any(streams.get('watts', []))):
             st.markdown(f"### 📊 {tr('Czas w strefach')}")
             cz1, cz2 = st.columns(2)
             
             if any(streams.get('watts', [])) and user_settings.get("zones_pwr"):
-                z_pwr = calculate_time_in_zones_custom(streams['watts'], user_settings["zones_pwr"], t['czas'])
+                z_pwr = calculate_time_in_zones_custom(streams['watts'], user_settings["zones_pwr"], t.get('czas', 0))
                 if z_pwr:
                     df_zp = pd.DataFrame(z_pwr)
-                    fig_zp = px.bar(df_zp, x='pct', y='label', orientation='h', title=tr("Moc"), text=df_zp['mins'].apply(lambda x: f"{x} min"), color='label', color_discrete_sequence=ZONE_COLORS)
+                    # Zmienione x='mins' aby wykres słupkowy opierał się na realnych minutach
+                    fig_zp = px.bar(df_zp, x='mins', y='label', orientation='h', title=tr("Moc"), text=df_zp['mins'].apply(lambda x: f"{x} min"), color='label', color_discrete_sequence=ZONE_COLORS)
                     fig_zp.update_layout(template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                     cz1.plotly_chart(fig_zp, use_container_width=True)
                     
             if any(streams.get('hr', [])) and user_settings.get("zones_hr"):
-                z_hr = calculate_time_in_zones_custom(streams['hr'], user_settings["zones_hr"], t['czas'])
+                z_hr = calculate_time_in_zones_custom(streams['hr'], user_settings["zones_hr"], t.get('czas', 0))
                 if z_hr:
                     df_zh = pd.DataFrame(z_hr)
-                    fig_zh = px.bar(df_zh, x='pct', y='label', orientation='h', title=tr("Tętno"), text=df_zh['mins'].apply(lambda x: f"{x} min"), color='label', color_discrete_sequence=ZONE_COLORS)
+                    # Zmienione x='mins'
+                    fig_zh = px.bar(df_zh, x='mins', y='label', orientation='h', title=tr("Tętno"), text=df_zh['mins'].apply(lambda x: f"{x} min"), color='label', color_discrete_sequence=ZONE_COLORS)
                     fig_zh.update_layout(template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                     cz2.plotly_chart(fig_zh, use_container_width=True)
 
@@ -715,7 +757,6 @@ if menu == tr("Dodaj aktywność"):
     c4.markdown(f"<div class='metric-card' style='padding:15px;'><div class='metric-val' style='color:#FFD700;'>🔥 {streak}</div><div class='metric-label'>{tr('Wykonane Treningi (Licznik)')}</div></div>", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
 
-    u_strefy = get_user_zones(ja)
     col_main, col_side = st.columns([3, 1])
     with col_side: render_tp_weekly_list(get_df(ja))
     with col_main:
@@ -725,7 +766,8 @@ if menu == tr("Dodaj aktywność"):
             is_file_mode = False
             if up:
                 is_file_mode = True
-                parsed = parse_tcx_pro(up, u_strefy.get('ftp', 250), u_strefy.get('lthr', 170))
+                # Przekazujemy wszystkie strefy zawodnika, żeby parser sam wybrał dyscyplinę
+                parsed = parse_tcx_pro(up, db["strefy"].get(ja, {}))
                 if parsed['time'] > 0: st.session_state.form_data = parsed; st.success(f"✅ {tr('Przetworzono:')} {parsed['dist']} km")
 
             curr = st.session_state.form_data
@@ -777,9 +819,11 @@ if menu == tr("Dodaj aktywność"):
         df_plan = get_df(ja)
         for idx, row in df_plan.sort_values('data', ascending=False).iterrows():
             with st.expander(f"{'✅' if row['wykonany'] else '⬜'} {row['data']} | {tr(row['dyscyplina'])} - {row['tytul']}"):
-                if not row['wykonany']: render_planned_workout_view(row, u_strefy.get('ftp', 250))
+                # W zależności od dyscypliny, podajemy właściwe strefy
+                u_strefy_disc = get_user_zones(ja, row['dyscyplina'])
+                if not row['wykonany']: render_planned_workout_view(row, u_strefy_disc.get('ftp', 250))
                 else: 
-                    if st.toggle(tr("Analiza"), key=f"tgl_{idx}"): render_analysis_dashboard(row.to_dict(), u_strefy)
+                    if st.toggle(tr("Analiza"), key=f"tgl_{idx}"): render_analysis_dashboard(row.to_dict(), u_strefy_disc)
 
 # --- 1.5 CZAT (WIADOMOŚCI) ---
 elif menu == tr("Wiadomości"):
@@ -847,7 +891,6 @@ elif menu == tr("Statystyki"):
 elif menu == tr("Kalendarz"):
     st.title(tr("Kalendarz"))
     target = ja if st.session_state.role != "coach" else st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY)
-    u_strefy_cal = get_user_zones(target)
 
     # --- ZAKŁADKI: KALENDARZ I LISTA KART ---
     tab_kalendarz, tab_lista = st.tabs([f"📅 {tr('Kalendarz')}", f"📋 {tr('Lista aktywności')}"])
@@ -887,7 +930,8 @@ elif menu == tr("Kalendarz"):
                             st.success(tr("Zaplanowano!")); st.session_state.cal_click_date = None; st.rerun()
 
             events = przygotuj_kalendarz(target)
-            cal = calendar(events=events, options={"initialView": "dayGridMonth", "initialDate": str(date.today()), "firstDay": 1, "selectable": True, "dateClick": True, "height": 700}, key='cal_view', callbacks=['dateClick', 'eventClick'])
+            # Dynamiczny klucz kalendarza zapobiega zawieszaniu się przy zmianie zawodnika
+            cal = calendar(events=events, options={"initialView": "dayGridMonth", "initialDate": str(date.today()), "firstDay": 1, "selectable": True, "dateClick": True, "height": 700}, key=f'cal_view_{target}', callbacks=['dateClick', 'eventClick'])
             if cal.get("dateClick"):
                 selected = cal["dateClick"]["dateStr"]
                 if selected != st.session_state.get('cal_click_date'): st.session_state.cal_click_date = selected; st.rerun()
@@ -899,15 +943,15 @@ elif menu == tr("Kalendarz"):
                     st.markdown("---")
                     if not match_df.empty: 
                         st.subheader(f"{tr('Szczegóły:')} {props.get('tytul')}")
-                        render_analysis_dashboard(match_df.iloc[0].to_dict(), u_strefy_cal)
+                        t_dict = match_df.iloc[0].to_dict()
+                        # Pobranie stref do podglądu uwzględniając dyscyplinę
+                        render_analysis_dashboard(t_dict, get_user_zones(target, t_dict['dyscyplina']))
                     else: st.info(tr("Nie znaleziono szczegółów. Sprawdź listę zadań."))
 
         with col_s: render_tp_weekly_list(get_df(target))
 
     with tab_lista:
         st.markdown(f"### 📋 {tr('Ostatnie Aktywności')}")
-        
-        # Wstrzykiwanie stylu tylko dla kart
         st.markdown("""
         <style>
         .trening-karta {
@@ -970,14 +1014,12 @@ elif menu == tr("Kalendarz"):
         df_lista = get_df(target)
         if not df_lista.empty:
             df_lista = df_lista[df_lista['wykonany'] == True].sort_values('data', ascending=False)
-            
             if df_lista.empty:
                 st.info(tr("Brak wykonanych aktywności."))
             else:
                 for idx, t_row in df_lista.iterrows():
                     ikona_sport = "🏃" if t_row['dyscyplina'] == "Bieganie" else "🚴" if t_row['dyscyplina'] == "Rower" else "🏊" if t_row['dyscyplina'] == "Pływanie" else "🏋️"
                     sport_txt = f"{ikona_sport} {tr(t_row['dyscyplina']).upper()}"
-                    
                     kolor_dyscypliny = KOLORY_SPORT.get(t_row['dyscyplina'], "#00E5FF")
                     dyst = f"{t_row.get('dystans', 0)} km"
                     czs = format_czas(t_row.get('czas', 0))
@@ -985,7 +1027,7 @@ elif menu == tr("Kalendarz"):
                     narysuj_karte(sport_txt, str(t_row['data']), dyst, czs, int(t_row.get('tss', 0)), kolor_dyscypliny)
                     
                     with st.expander(f"🔍 {tr('Analiza')}: {t_row['tytul']}"):
-                        render_analysis_dashboard(t_row.to_dict(), u_strefy_cal)
+                        render_analysis_dashboard(t_row.to_dict(), get_user_zones(target, t_row['dyscyplina']))
         else:
             st.info(tr("Brak wykonanych aktywności."))
 
@@ -1154,38 +1196,43 @@ elif menu == tr("Strefy"):
     st.title(tr("Strefy"))
     sel_user = st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY) if st.session_state.role=="coach" else ja
     
-    # Wykorzystujemy nową funkcję, która gwrabatuje poprawną zawartość
-    user_data = get_user_zones(sel_user)
+    # Wybór dyscypliny dla stref
+    sel_disc = st.selectbox(tr("Dyscyplina"), ["Rower", "Bieganie", "Pływanie", "Siłownia", "Inne"], format_func=tr)
+    
+    # Pobieramy konkretne strefy tylko dla wybranej dyscypliny zawodnika
+    user_data = get_user_zones(sel_user, sel_disc)
     
     c1, c2, c3 = st.columns(3)
     new_ftp = c1.number_input("FTP (W)", value=int(user_data.get("ftp", 250)))
     new_lthr = c2.number_input("LTHR (BPM)", value=int(user_data.get("lthr", 170)))
+    
     if c3.button(tr("Przelicz / Zresetuj")): 
         user_data["zones_pwr"] = generuj_domyslne_strefy(new_ftp, new_lthr)[0].to_dict('records')
         user_data["zones_hr"] = generuj_domyslne_strefy(new_ftp, new_lthr)[1].to_dict('records')
         user_data["ftp"] = new_ftp
         user_data["lthr"] = new_lthr
         
-        # Bezpieczny zapis do bazy
-        if isinstance(db["strefy"], list): db["strefy"] = {}
+        # Bezpieczny zapis do bazy dla konkretnej dyscypliny
         temp_db = db["strefy"]
-        temp_db[sel_user] = user_data
+        if sel_user not in temp_db: temp_db[sel_user] = {}
+        temp_db[sel_user][sel_disc] = user_data
         db["strefy"] = temp_db
         st.rerun()
         
     c1, c2 = st.columns(2)
-    with c1: st.subheader(tr("Moc")); edited_pwr = st.data_editor(pd.DataFrame(user_data["zones_pwr"]), column_order=["Strefa", "Min", "Max"], hide_index=True)
-    with c2: st.subheader(tr("Tętno")); edited_hr = st.data_editor(pd.DataFrame(user_data["zones_hr"]), column_order=["Strefa", "Min", "Max"], hide_index=True)
+    # Dodany klucz, żeby Streamlit nie wyrzucał błędów duplikatów przy zmianie zawodnika
+    with c1: st.subheader(tr("Moc")); edited_pwr = st.data_editor(pd.DataFrame(user_data["zones_pwr"]), column_order=["Strefa", "Min", "Max"], hide_index=True, key=f"pwr_{sel_user}_{sel_disc}")
+    with c2: st.subheader(tr("Tętno")); edited_hr = st.data_editor(pd.DataFrame(user_data["zones_hr"]), column_order=["Strefa", "Min", "Max"], hide_index=True, key=f"hr_{sel_user}_{sel_disc}")
+    
     if st.button(tr("Zapisz Zmiany")): 
         user_data["zones_pwr"] = edited_pwr.to_dict('records')
         user_data["zones_hr"] = edited_hr.to_dict('records')
         user_data["ftp"] = new_ftp
         user_data["lthr"] = new_lthr
         
-        # Bezpieczny zapis do bazy
-        if isinstance(db["strefy"], list): db["strefy"] = {}
         temp_db = db["strefy"]
-        temp_db[sel_user] = user_data
+        if sel_user not in temp_db: temp_db[sel_user] = {}
+        temp_db[sel_user][sel_disc] = user_data
         db["strefy"] = temp_db
         st.success(tr("Zapisano strefy!"))
 
