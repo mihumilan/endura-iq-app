@@ -12,8 +12,10 @@ import struct
 import time
 import unicodedata
 from streamlit_calendar import calendar
+
 st.set_page_config(page_title="Endura IQ", layout="wide", initial_sidebar_state="expanded")
-# --- NOWOŚĆ: MODUŁ BAZY DANYCH MONGODB (CLOUD) ---
+
+# --- MODUŁ BAZY DANYCH MONGODB (CLOUD) ---
 import pymongo
 import urllib.parse
 
@@ -21,8 +23,6 @@ import urllib.parse
 def get_database_client():
     password = urllib.parse.quote_plus("2001SOSna!")
     uri = f"mongodb+srv://admin:{password}@cluster0.rruonnh.mongodb.net/?appName=Cluster0"
-    
-    # Wyłączamy restrykcyjne sprawdzanie SSL (tzw. obejście dla środowiska Replit)
     return pymongo.MongoClient(uri, tls=True, tlsAllowInvalidCertificates=True)
 
 class MongoDBWrapper:
@@ -49,12 +49,9 @@ class MongoDBWrapper:
 mongo_client = get_database_client()
 db = MongoDBWrapper(mongo_client)
 
-
 # ==========================================
 # 1. KONFIGURACJA, TŁUMACZENIA I CSS
 # ==========================================
-
-
 if 'lang' not in st.session_state: st.session_state.lang = 'PL'
 
 TRANSLATIONS = {
@@ -121,7 +118,7 @@ TRANSLATIONS = {
         "Dodaj Trening do Planu": "Add Workout to Plan", "Zapisz Plan": "Save Plan", "Nazwa Planu (np. 4 tygodnie Baza)": "Plan Name (e.g., 4-week Base)",
         "Najpierw stwórz pojedyncze treningi (szablony) w zakładce Kreator.": "First, create individual workouts (templates) in the Builder tab.",
         "Komentarze do treningu": "Workout Comments", "Dodaj komentarz...": "Add a comment...", "Wyślij": "Send", "Interwały": "Intervals",
-        "Mapa trasy GPS": "GPS Route Map", "Lista aktywności": "Activity List"
+        "Mapa trasy GPS": "GPS Route Map", "Lista aktywności": "Activity List", "Czas w strefach": "Time in Zones"
     }
 }
 
@@ -222,6 +219,23 @@ def pace_str_to_float(pace_str):
 def float_to_pace_str(val):
     m=int(val); return f"{m}:{int((val-m)*60):02d}"
 
+def generuj_domyslne_strefy(ftp, lthr):
+    p_zones = [{"Strefa": f"Z{i+1}", "Min": int(p_prev + (1 if i>0 else 0)), "Max": int(m*ftp)} for i, (m, p_prev) in enumerate(zip([0.55, 0.75, 0.90, 1.05, 1.20, 5.0], [0] + [int(x*ftp) for x in [0.55, 0.75, 0.90, 1.05, 1.20]]))]
+    h_zones = [{"Strefa": f"Z{i+1}", "Min": int(h_prev + (1 if i>0 else 0)), "Max": int(m*lthr)} for i, (m, h_prev) in enumerate(zip([0.81, 0.89, 0.93, 0.99, 1.02, 1.2], [0] + [int(x*lthr) for x in [0.81, 0.89, 0.93, 0.99, 1.02]]))]
+    return pd.DataFrame(p_zones), pd.DataFrame(h_zones)
+
+def get_user_zones(zawodnik):
+    """Pobiera lub generuje i zapisuje domyślne strefy, by tabele zawsze były widoczne."""
+    if isinstance(db["strefy"], list): db["strefy"] = {}
+    ud = db["strefy"].get(zawodnik, {})
+    if not ud.get("zones_pwr") or not ud.get("zones_hr"):
+        zp, zh = generuj_domyslne_strefy(ud.get("ftp", 250), ud.get("lthr", 170))
+        ud["zones_pwr"] = zp.to_dict('records')
+        ud["zones_hr"] = zh.to_dict('records')
+        ud["ftp"] = ud.get("ftp", 250)
+        ud["lthr"] = ud.get("lthr", 170)
+    return ud
+
 def update_athlete_records(zawodnik, workout_data):
     if not workout_data.get('wykonany'): return
     if workout_data.get('peak_powers'):
@@ -297,11 +311,6 @@ def get_next_race(zawodnik):
     if not future_races: return None
     future_races.sort(key=lambda x: x[1])
     return future_races[0]
-
-def generuj_domyslne_strefy(ftp, lthr):
-    p_zones = [{"Strefa": f"Z{i+1}", "Min": int(p_prev + (1 if i>0 else 0)), "Max": int(m*ftp)} for i, (m, p_prev) in enumerate(zip([0.55, 0.75, 0.90, 1.05, 1.20, 5.0], [0] + [int(x*ftp) for x in [0.55, 0.75, 0.90, 1.05, 1.20]]))]
-    h_zones = [{"Strefa": f"Z{i+1}", "Min": int(h_prev + (1 if i>0 else 0)), "Max": int(m*lthr)} for i, (m, h_prev) in enumerate(zip([0.81, 0.89, 0.93, 0.99, 1.02, 1.2], [0] + [int(x*lthr) for x in [0.81, 0.89, 0.93, 0.99, 1.02]]))]
-    return pd.DataFrame(p_zones), pd.DataFrame(h_zones)
 
 # --- NATIVE GARMIN FIT SDK ENGINE ---
 class FitWriter:
@@ -603,6 +612,27 @@ def render_analysis_dashboard(t, user_settings):
         fig.update_layout(template="plotly_dark", height=500, showlegend=False, margin=dict(l=50,r=10,t=30,b=10), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig, use_container_width=True)
 
+        # --- DODANE POWROTEM: WYKRES CZASU W STREFACH ---
+        if streams and (any(streams.get('hr', [])) or any(streams.get('watts', []))):
+            st.markdown(f"### 📊 {tr('Czas w strefach')}")
+            cz1, cz2 = st.columns(2)
+            
+            if any(streams.get('watts', [])) and user_settings.get("zones_pwr"):
+                z_pwr = calculate_time_in_zones_custom(streams['watts'], user_settings["zones_pwr"], t['czas'])
+                if z_pwr:
+                    df_zp = pd.DataFrame(z_pwr)
+                    fig_zp = px.bar(df_zp, x='pct', y='label', orientation='h', title=tr("Moc"), text=df_zp['mins'].apply(lambda x: f"{x} min"), color='label', color_discrete_sequence=ZONE_COLORS)
+                    fig_zp.update_layout(template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                    cz1.plotly_chart(fig_zp, use_container_width=True)
+                    
+            if any(streams.get('hr', [])) and user_settings.get("zones_hr"):
+                z_hr = calculate_time_in_zones_custom(streams['hr'], user_settings["zones_hr"], t['czas'])
+                if z_hr:
+                    df_zh = pd.DataFrame(z_hr)
+                    fig_zh = px.bar(df_zh, x='pct', y='label', orientation='h', title=tr("Tętno"), text=df_zh['mins'].apply(lambda x: f"{x} min"), color='label', color_discrete_sequence=ZONE_COLORS)
+                    fig_zh.update_layout(template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                    cz2.plotly_chart(fig_zh, use_container_width=True)
+
     st.markdown("---")
     st.markdown(f"### 💬 {tr('Komentarze do treningu')}")
     komentarze = t.get('komentarze_treningu', [])
@@ -685,7 +715,7 @@ if menu == tr("Dodaj aktywność"):
     c4.markdown(f"<div class='metric-card' style='padding:15px;'><div class='metric-val' style='color:#FFD700;'>🔥 {streak}</div><div class='metric-label'>{tr('Wykonane Treningi (Licznik)')}</div></div>", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
 
-    u_strefy = db["strefy"].get(ja, {"ftp": 250, "lthr": 170})
+    u_strefy = get_user_zones(ja)
     col_main, col_side = st.columns([3, 1])
     with col_side: render_tp_weekly_list(get_df(ja))
     with col_main:
@@ -817,7 +847,7 @@ elif menu == tr("Statystyki"):
 elif menu == tr("Kalendarz"):
     st.title(tr("Kalendarz"))
     target = ja if st.session_state.role != "coach" else st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY)
-    u_strefy_cal = db["strefy"].get(target, {"ftp": 250, "lthr": 170})
+    u_strefy_cal = get_user_zones(target)
 
     # --- ZAKŁADKI: KALENDARZ I LISTA KART ---
     tab_kalendarz, tab_lista = st.tabs([f"📅 {tr('Kalendarz')}", f"📋 {tr('Lista aktywności')}"])
@@ -939,14 +969,12 @@ elif menu == tr("Kalendarz"):
 
         df_lista = get_df(target)
         if not df_lista.empty:
-            # Filtrujemy tylko wykonane aktywności z bazy i sortujemy od najnowszego do najstarszego
             df_lista = df_lista[df_lista['wykonany'] == True].sort_values('data', ascending=False)
             
             if df_lista.empty:
                 st.info(tr("Brak wykonanych aktywności."))
             else:
                 for idx, t_row in df_lista.iterrows():
-                    # Przypisanie ładnych ikon
                     ikona_sport = "🏃" if t_row['dyscyplina'] == "Bieganie" else "🚴" if t_row['dyscyplina'] == "Rower" else "🏊" if t_row['dyscyplina'] == "Pływanie" else "🏋️"
                     sport_txt = f"{ikona_sport} {tr(t_row['dyscyplina']).upper()}"
                     
@@ -954,10 +982,8 @@ elif menu == tr("Kalendarz"):
                     dyst = f"{t_row.get('dystans', 0)} km"
                     czs = format_czas(t_row.get('czas', 0))
                     
-                    # Rysujemy piękną kartę:
                     narysuj_karte(sport_txt, str(t_row['data']), dyst, czs, int(t_row.get('tss', 0)), kolor_dyscypliny)
                     
-                    # A zaraz pod nią dodajemy rozwijaną lupkę z pełną analizą!
                     with st.expander(f"🔍 {tr('Analiza')}: {t_row['tytul']}"):
                         render_analysis_dashboard(t_row.to_dict(), u_strefy_cal)
         else:
@@ -1127,21 +1153,41 @@ elif menu == tr("Raporty"):
 elif menu == tr("Strefy"):
     st.title(tr("Strefy"))
     sel_user = st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY) if st.session_state.role=="coach" else ja
-    user_data = db["strefy"].get(sel_user, {"ftp": 250, "lthr": 170, "zones_pwr": None, "zones_hr": None})
+    
+    # Wykorzystujemy nową funkcję, która gwrabatuje poprawną zawartość
+    user_data = get_user_zones(sel_user)
+    
     c1, c2, c3 = st.columns(3)
-    new_ftp = c1.number_input("FTP (W)", value=user_data.get("ftp", 250))
-    new_lthr = c2.number_input("LTHR (BPM)", value=user_data.get("lthr", 170))
+    new_ftp = c1.number_input("FTP (W)", value=int(user_data.get("ftp", 250)))
+    new_lthr = c2.number_input("LTHR (BPM)", value=int(user_data.get("lthr", 170)))
     if c3.button(tr("Przelicz / Zresetuj")): 
         user_data["zones_pwr"] = generuj_domyslne_strefy(new_ftp, new_lthr)[0].to_dict('records')
         user_data["zones_hr"] = generuj_domyslne_strefy(new_ftp, new_lthr)[1].to_dict('records')
-        user_data["ftp"] = new_ftp; user_data["lthr"] = new_lthr; db["strefy"][sel_user] = user_data; st.rerun()
-    if user_data.get("zones_pwr"):
-        c1, c2 = st.columns(2)
-        with c1: st.subheader(tr("Moc")); edited_pwr = st.data_editor(pd.DataFrame(user_data["zones_pwr"]), column_order=["Strefa", "Min", "Max"], hide_index=True)
-        with c2: st.subheader(tr("Tętno")); edited_hr = st.data_editor(pd.DataFrame(user_data["zones_hr"]), column_order=["Strefa", "Min", "Max"], hide_index=True)
-        if st.button(tr("Zapisz Zmiany")): 
-            user_data["zones_pwr"] = edited_pwr.to_dict('records'); user_data["zones_hr"] = edited_hr.to_dict('records')
-            db["strefy"][sel_user] = user_data; st.success(tr("Zapisano strefy!"))
+        user_data["ftp"] = new_ftp
+        user_data["lthr"] = new_lthr
+        
+        # Bezpieczny zapis do bazy
+        if isinstance(db["strefy"], list): db["strefy"] = {}
+        temp_db = db["strefy"]
+        temp_db[sel_user] = user_data
+        db["strefy"] = temp_db
+        st.rerun()
+        
+    c1, c2 = st.columns(2)
+    with c1: st.subheader(tr("Moc")); edited_pwr = st.data_editor(pd.DataFrame(user_data["zones_pwr"]), column_order=["Strefa", "Min", "Max"], hide_index=True)
+    with c2: st.subheader(tr("Tętno")); edited_hr = st.data_editor(pd.DataFrame(user_data["zones_hr"]), column_order=["Strefa", "Min", "Max"], hide_index=True)
+    if st.button(tr("Zapisz Zmiany")): 
+        user_data["zones_pwr"] = edited_pwr.to_dict('records')
+        user_data["zones_hr"] = edited_hr.to_dict('records')
+        user_data["ftp"] = new_ftp
+        user_data["lthr"] = new_lthr
+        
+        # Bezpieczny zapis do bazy
+        if isinstance(db["strefy"], list): db["strefy"] = {}
+        temp_db = db["strefy"]
+        temp_db[sel_user] = user_data
+        db["strefy"] = temp_db
+        st.success(tr("Zapisano strefy!"))
 
 # --- 7. KREATOR (POJEDYNCZE TRENINGI) ---
 elif menu == tr("Kreator"):
