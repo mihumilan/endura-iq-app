@@ -7,3 +7,4 @@ streamlit-calendar
 pymongo
 dnspython
 certifi
+garmin-fit-sdk
