@@ -45,7 +45,7 @@ class MongoDBWrapper:
     def __contains__(self, key):
         return self.collection.count_documents({"_id": key}, limit=1) > 0
 
-# Inicjalizacja bazy
+# Inicjalizacja profesjonalnej bazy w chmurze!
 mongo_client = get_database_client()
 db = MongoDBWrapper(mongo_client)
 
@@ -99,6 +99,7 @@ TRANSLATIONS = {
         "Dodaj Krok": "Add Step", "Bieg": "Run", "Rower": "Bike", "Pływanie": "Swim", "Pojedynczy Krok": "Single Step", 
         "Seria Interwałów": "Interval Set", "Jednostka": "Unit", "Liczba powtórzeń": "Repetitions", "Praca": "Work", 
         "Odpoczynek": "Rest", "Dodaj Serię": "Add Set", "Wyczyść Kreator": "Clear Builder", "Czas/Dystans": "Time/Dist",
+        "Pobierz .FIT i wgraj go na zegarek do folderu GARMIN/NewFiles. Zegarek sam go przetworzy!": "Download .FIT and copy to GARMIN/NewFiles on your watch. It will process automatically!",
         "Dodaj zawody / cel": "Add Race / Goal", "Nazwa zawodów": "Race Name", "Data zawodów": "Race Date", 
         "Dodaj Start": "Add Race", "Dodano zawody!": "Race added!", "Cel:": "Goal:", "dni do startu": "days to go", 
         "dzisiaj!": "today!", "Czat z": "Chat with", "Napisz wiadomość...": "Type a message...",
@@ -167,9 +168,10 @@ KOLORY_SPORT = {"Pływanie": "#2979FF", "Rower": "#FF1744", "Bieganie": "#00E676
 KOLORY_BLOKOW = {"Rozgrzewka": "#558B2F", "Interwał": "#D32F2F", "Przerwa": "#1976D2", "Rozjazd": "#616161"}
 ZONE_COLORS = ["#9E9E9E", "#2196F3", "#4CAF50", "#FFC107", "#FF5722", "#D50000", "#880E4F"]
 
-for key in ["treningi", "strefy", "wyscigi", "biblioteka", "fizjologia", "power_profile", "run_records", "waga", "chat", "plany"]:
-    if key not in db: db[key] = []
+for key in ["treningi", "strefy", "wyscigi", "biblioteka", "fizjologia", "power_profile", "run_records", "waga", "chat", "plany", "garmin_creds"]:
+    if key not in db: db[key] = {} if key in ["strefy", "garmin_creds"] else []
 if isinstance(db["strefy"], list): db["strefy"] = {}
+if isinstance(db["garmin_creds"], list): db["garmin_creds"] = {}
 if "session_treningi" not in st.session_state: st.session_state.session_treningi = list(db["treningi"])
 
 # ==========================================
@@ -337,134 +339,63 @@ def get_next_race(zawodnik):
     future_races.sort(key=lambda x: x[1])
     return future_races[0]
 
-
-# --- NATIVE GENERATORS (FIT / ZWO / TCX) ---
-class FitWriter:
-    def __init__(self):
-        self.data = bytearray()
-        self.crc_table = [0x0000, 0xCC01, 0xD801, 0x1400, 0xF001, 0x3C00, 0x2800, 0xE401, 0xA001, 0x6C00, 0x7800, 0xB401, 0x5000, 0x9C01, 0x8801, 0x4400]
-    def compute_crc(self, payload, crc=0):
-        for byte in payload:
-            crc = (crc >> 4) & 0x0FFF ^ self.crc_table[crc & 0xF] ^ self.crc_table[byte & 0xF]
-            crc = (crc >> 4) & 0x0FFF ^ self.crc_table[crc & 0xF] ^ self.crc_table[(byte >> 4) & 0xF]
-        return crc
-    def clean_ascii(self, text, length):
-        text = unicodedata.normalize('NFKD', str(text)).encode('ASCII', 'ignore').decode('utf-8')
-        return "".join([c for c in text if c.isalnum() or c in " -_()"]).encode('utf-8')[:length-1].ljust(length, b'\x00')
-    def write_def(self, l_num, g_num, fields):
-        self.data += bytearray([0x40 | (l_num & 0x0F), 0, 0]) + struct.pack('<H', g_num) + bytearray([len(fields)])
-        for f in fields: self.data += bytearray(f)
-    def write_data(self, l_num, data_bytes):
-        self.data += bytearray([0x00 | (l_num & 0x0F)]) + data_bytes
-    def generate(self, name, sport_enum, steps):
-        self.data = bytearray()
-        ts = int(time.time()) - 631065600 
-        self.write_def(0, 0, [(0, 1, 0x00), (1, 2, 0x84), (2, 2, 0x84), (3, 4, 0x8C), (4, 4, 0x86)])
-        self.write_data(0, struct.pack('<B H H I I', 5, 255, 65535, ts, ts))
-        self.write_def(1, 26, [(8, 16, 0x07), (4, 2, 0x84), (5, 1, 0x00), (11, 1, 0x00)])
-        self.write_data(1, self.clean_ascii(name, 16) + struct.pack('<H B B', len(steps), sport_enum, 254))
-        self.write_def(2, 27, [(254, 2, 0x84), (0, 16, 0x07), (1, 1, 0x00), (2, 4, 0x86), (3, 1, 0x00), (4, 4, 0x86), (5, 4, 0x86), (6, 4, 0x86), (7, 1, 0x00)])
-        for idx, s in enumerate(steps):
-            sd = struct.pack('<H', idx) + self.clean_ascii(s['name'], 16) + struct.pack('<B I B I I I B', s['d_type'], s['d_val'], s['t_type'], s['t_val'], s['t_low'], s['t_high'], s['intens'])
-            self.write_data(2, sd)
-        header = struct.pack('<BBHI4s', 14, 0x10, 2141, len(self.data), b'.FIT')
-        header += struct.pack('<H', self.compute_crc(header))
-        ff = header + self.data
-        return bytes(ff + struct.pack('<H', self.compute_crc(ff)))
-
-def create_binary_fit(workout_data, ftp=250):
-    writer = FitWriter()
-    sport_map = {"Bieganie": 1, "Rower": 2, "Pływanie": 5}
-    sport_enum = sport_map.get(workout_data.get('dyscyplina'), 0)
-    intens_map = {"Rozgrzewka": 2, "Interwał": 0, "Przerwa": 1, "Rozjazd": 3}
-    name_map = {"Rozgrzewka": "Warmup", "Interwał": "Work", "Przerwa": "Rest", "Rozjazd": "Cooldown"}
-    steps = []
-    for k in workout_data.get('kroki', []):
-        d_type = 1 if k.get('is_distance') else 0
-        d_val = max(int(k.get('dystans_km', 0) * 100000) if d_type == 1 else int(k.get('czas_total_sec', 0) * 1000), 1000)
-        mode = k.get('tryb', ''); v_min = float(k.get('val_min', 0)); v_max = float(k.get('val_max', 0))
-        t_type = 2; t_val = 0xFFFFFFFF; c_low = 0xFFFFFFFF; c_high = 0xFFFFFFFF
-        if v_min > 0 or v_max > 0:
-            if "Waty" in mode or "%" in mode:
-                t_type = 4; t_val = 0
-                c_low = int(min(v_min, v_max)) + 1000 if "Waty" in mode else int((min(v_min, v_max) / 100.0) * ftp) + 1000
-                c_high = int(max(v_min, v_max)) + 1000 if "Waty" in mode else int((max(v_min, v_max) / 100.0) * ftp) + 1000
-            elif "Tętno" in mode:
-                t_type = 1; t_val = 0
-                c_low = int(min(v_min, v_max)) + 100; c_high = int(max(v_min, v_max)) + 100
-            elif "Tempo" in mode:
-                t_type = 0; t_val = 0
-                c_low = min(int(1000 / (v_min * 60) * 1000), int(1000 / (v_max * 60) * 1000))
-                c_high = max(int(1000 / (v_min * 60) * 1000), int(1000 / (v_max * 60) * 1000))
-        steps.append({'name': name_map.get(k.get('typ'), "Step"), 'd_type': d_type, 'd_val': d_val, 't_type': t_type, 't_val': t_val, 't_low': c_low, 't_high': c_high, 'intens': intens_map.get(k.get('typ'), 0)})
-    return writer.generate(str(workout_data.get('tytul', 'Workout'))[:15], sport_enum, steps)
-
-# NOWOŚĆ: Generator niezawodnych plików TCX (Akceptowanych przez Nowe Garminy)
-def generate_tcx_workout_file(workout_data):
+# --- NOWOŚĆ: INTEGRACJA CLOUD GARMIN CONNECT ---
+def send_workout_to_garmin_connect(email, password, workout_data):
+    import garminconnect
+    client = garminconnect.Garmin(email, password)
+    client.login()
+    
     sport_str = workout_data.get('dyscyplina', 'Bieganie')
-    tcx_sport = "Biking" if sport_str == "Rower" else ("Running" if sport_str == "Bieganie" else "Other")
+    sport_id, sport_key = (2, "cycling") if sport_str == "Rower" else ((4, "swimming") if sport_str == "Pływanie" else (1, "running"))
     
-    xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
-    xml += '<TrainingCenterDatabase xsi:schemaLocation="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd" xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n'
-    xml += '  <Workouts>\n'
-    xml += f'    <Workout Sport="{tcx_sport}">\n'
-    
-    safe_name = "".join([c for c in str(workout_data.get('tytul', 'Workout')) if c.isalnum() or c in " -_"])[:15]
-    xml += f'      <Name>{safe_name}</Name>\n'
-    
-    steps = workout_data.get('kroki', [])
-    for i, k in enumerate(steps):
-        step_id = i + 1
-        name = "".join([c for c in str(k.get('typ', 'Step')) if c.isalnum() or c in " "])
-        xml += '      <Step xsi:type="Step_t">\n'
-        xml += f'        <StepId>{step_id}</StepId>\n'
-        xml += f'        <Name>{name}</Name>\n'
+    steps = []
+    for i, k in enumerate(workout_data.get('kroki', [])):
+        typ_str = k.get('typ', 'Interwał')
+        s_id, s_key = (1, "warmup") if typ_str == "Rozgrzewka" else ((2, "cooldown") if typ_str == "Rozjazd" else ((4, "rest") if typ_str == "Przerwa" else (3, "active")))
         
         if k.get('is_distance'):
-            dist_meters = int(k.get('dystans_km', 0) * 1000)
-            xml += f'        <Duration xsi:type="Distance_t">\n          <Meters>{dist_meters}</Meters>\n        </Duration>\n'
+            cond_id, cond_key = 3, "distance"
+            cond_val = int(k.get('dystans_km', 0) * 1000)
         else:
-            sec = int(k.get('czas_total_sec', 0))
-            if sec == 0: sec = 60
-            xml += f'        <Duration xsi:type="Time_t">\n          <Seconds>{sec}</Seconds>\n        </Duration>\n'
+            cond_id, cond_key = 2, "time"
+            cond_val = int(k.get('czas_total_sec', 0))
+            if cond_val == 0: cond_val = 60
             
-        intensity = "Resting" if name == "Przerwa" else "Active"
-        xml += f'        <Intensity>{intensity}</Intensity>\n'
-        
-        mode = k.get('tryb', '')
-        v_min = float(k.get('val_min', 0))
-        v_max = float(k.get('val_max', 0))
-        
-        if v_min > 0 or v_max > 0:
-            if "Tętno" in mode:
-                xml += '        <Target xsi:type="HeartRate_t">\n'
-                xml += '          <HeartRateZone xsi:type="CustomHeartRateZone_t">\n'
-                xml += f'            <Low><Value>{int(min(v_min, v_max))}</Value></Low>\n'
-                xml += f'            <High><Value>{int(max(v_min, v_max))}</Value></High>\n'
-                xml += '          </HeartRateZone>\n'
-                xml += '        </Target>\n'
-            elif "Tempo" in mode:
-                low_speed = 1000 / (max(v_min, v_max) * 60)
-                high_speed = 1000 / (min(v_min, v_max) * 60)
-                xml += '        <Target xsi:type="Speed_t">\n'
-                xml += '          <SpeedZone xsi:type="CustomSpeedZone_t">\n'
-                xml += f'            <Low><Value>{low_speed:.3f}</Value></Low>\n'
-                xml += f'            <High><Value>{high_speed:.3f}</Value></High>\n'
-                xml += '          </SpeedZone>\n'
-                xml += '        </Target>\n'
-            else:
-                # W formacie XML TCX cel mocy nie był ustandaryzowany, wpisujemy Open
-                xml += '        <Target xsi:type="None_t"/>\n'
-        else:
-            xml += '        <Target xsi:type="None_t"/>\n'
+        desc = f"{k.get('tryb','')} {k.get('val_min',0)}-{k.get('val_max',0)}"
+        if float(k.get('val_min',0)) == 0 and float(k.get('val_max',0)) == 0:
+            desc = "Luźno / RPE"
             
-        xml += '      </Step>\n'
+        steps.append({
+            "type": "ExecutableStepDTO",
+            "stepId": i+1,
+            "stepOrder": i+1,
+            "description": desc[:50],
+            "stepType": {"stepTypeId": s_id, "stepTypeKey": s_key},
+            "endCondition": {"conditionTypeId": cond_id, "conditionTypeKey": cond_key},
+            "endConditionValue": cond_val,
+            "targetType": {"workoutTargetTypeId": 1, "workoutTargetTypeKey": "no.target"}
+        })
         
-    xml += '    </Workout>\n'
-    xml += '  </Workouts>\n'
-    xml += '</TrainingCenterDatabase>'
-    return xml.encode('utf-8')
+    payload = {
+        "workoutName": "".join([c for c in str(workout_data.get('tytul', 'Workout')) if c.isalnum() or c in " -_"])[:15],
+        "description": workout_data.get('komentarz', 'Wygenerowano przez Endura IQ'),
+        "sportType": {"sportTypeId": sport_id, "sportTypeKey": sport_key},
+        "workoutSegments": [{"segmentOrder": 1, "sportType": {"sportTypeId": sport_id, "sportTypeKey": sport_key}, "workoutSteps": steps}]
+    }
+    
+    # Wywołanie wewnętrznej metody biblioteki wysyłającej trening do chmury Garmina
+    res = client.garth.client.post("connectapi", "/workout-service/workout", json=payload)
+    
+    if res and type(res) == dict and res.get("workoutId"):
+        w_id = res["workoutId"]
+        w_date = str(workout_data.get('data', date.today()))
+        # Dodanie do kalendarza na zaplanowany dzień
+        client.garth.client.post("connectapi", f"/workout-service/schedule/{w_id}", json={"date": w_date})
+        return True, "Zrobione! Trening jest już w kalendarzu Twojego konta Garmin Connect."
+    else:
+        return False, "Nie udało się utworzyć treningu po stronie serwerów Garmina."
 
+# --- ZWO GENERATOR ---
 def generate_zwo_file(workout_data):
     xml = "<workout_file>\n<author>TriCoach Pro</author>\n"
     xml += f"<name>{workout_data['tytul']}</name>\n<description>{workout_data.get('komentarz','')}</description>\n<sportType>bike</sportType>\n<workout>\n"
@@ -657,16 +588,35 @@ def render_planned_workout_view(t, user_ftp=250):
         fig.update_layout(template="plotly_dark", height=250, showlegend=False, xaxis_title=tr("Czas (min)"), yaxis=dict(showticklabels=False), margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig, use_container_width=True)
         with st.expander(tr("Zobacz Rozpiskę")): st.table(pd.DataFrame(steps_data))
+        
+        st.markdown("---")
+        st.markdown("### ☁️ Synchronizacja")
+        
+        # PRZYCISK: WYŚLIJ PROSTO DO GARMIN CONNECT
+        if st.button("🚀 Wyślij prosto do Garmin Connect (WiFi / Bluetooth)", key=f"gc_{t['tytul']}_{t['data']}"):
+            with st.spinner("Łączenie z serwerami Garmin..."):
+                zawodnik = t.get('zawodnik')
+                g_creds = db["garmin_creds"].get(zawodnik, {})
+                if not g_creds.get("email") or not g_creds.get("password"):
+                    st.error("Brak danych logowania do Garmin Connect. Uzupełnij je najpierw w zakładce 'Dane Zawodnika' -> 'Integracje 🔗'.")
+                else:
+                    try:
+                        ok, msg = send_workout_to_garmin_connect(g_creds["email"], g_creds["password"], t)
+                        if ok: 
+                            st.success(msg)
+                            st.balloons()
+                        else: st.error(msg)
+                    except Exception as e:
+                        if "Authentication" in str(e) or "Login" in str(e) or "401" in str(e) or "403" in str(e):
+                            st.error("⚠️ Błąd logowania! Sprawdź czy e-mail/hasło są poprawne. Upewnij się też, że na koncie Garmin masz wyłączoną weryfikację dwuetapową (2FA).")
+                        else:
+                            st.error(f"⚠️ Błąd integracji: {str(e)}")
 
-        # ZMIANA: Dodano przycisk dla pewnego formatu TCX
-        c1_dl, c2_dl, c3_dl = st.columns(3)
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        c1_dl, c2_dl = st.columns(2)
         safe_fn = "".join([c for c in unicodedata.normalize('NFKD', str(t['tytul'])).encode('ASCII', 'ignore').decode('utf-8') if c.isalnum() or c in " -_"]).strip() or "Workout"
-        
-        c1_dl.download_button("Pobierz .ZWO (Zwift)", data=generate_zwo_file(t), file_name=f"{safe_fn}.zwo", mime="text/xml")
-        c2_dl.download_button("Pobierz .TCX (Nowe Garminy) ✅", data=generate_tcx_workout_file(t), file_name=f"{safe_fn}.tcx", mime="application/tcx+xml")
-        c3_dl.download_button("Pobierz .FIT (Starsze modele)", data=create_binary_fit(t, user_ftp), file_name=f"{safe_fn}.fit", mime="application/octet-stream")
-        
-        st.markdown(f"<div style='text-align:center; margin-top:15px;'><span style='font-size:0.9em; color:#00E5FF;'>💡 <b>Instrukcja:</b> Podłącz zegarek kablem. Wrzuć pobrany plik <b>.TCX</b> (lub .FIT) do folderu <code>GARMIN/NewFiles</code>. Odłącz zegarek - system sam załaduje Twój trening!</span></div>", unsafe_allow_html=True)
+        c1_dl.download_button(tr("Pobierz plik .ZWO (Zwift)"), data=generate_zwo_file(t), file_name=f"{safe_fn}.zwo", mime="text/xml")
     else: st.warning(tr("Tylko opis tekstowy."))
 
 def render_analysis_dashboard(t, user_settings):
@@ -956,7 +906,6 @@ elif menu == tr("Kalendarz"):
     st.title(tr("Kalendarz"))
     target = ja if st.session_state.role != "coach" else st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY)
 
-    # --- ZAKŁADKI: KALENDARZ I LISTA KART ---
     tab_kalendarz, tab_lista = st.tabs([f"📅 {tr('Kalendarz')}", f"📋 {tr('Lista aktywności')}"])
 
     with tab_kalendarz:
@@ -1093,7 +1042,6 @@ elif menu == tr("Kalendarz"):
         else:
             st.info(tr("Brak wykonanych aktywności."))
 
-
 # --- 3. DASHBOARD ---
 elif menu == tr("Dashboard"):
     st.title(tr("Centrum Zarządzania")); cols = st.columns(3)
@@ -1129,7 +1077,7 @@ elif menu == tr("Dashboard"):
 elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
     st.title(tr("Dane Zawodnika i Fizjologia"))
     sel_user = st.selectbox(tr("Zawodnik:"), ZAWODNICY) if st.session_state.role == "coach" else ja
-    tab1, tab2, tab3, tab4 = st.tabs([tr("Profil Mocy (CP)"), tr("Rekordy Biegowe"), tr("Badania & Trendy"), tr("Waga")])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([tr("Profil Mocy (CP)"), tr("Rekordy Biegowe"), tr("Badania & Trendy"), tr("Waga"), "Integracje 🔗"])
 
     with tab1:
         st.markdown(f"### {tr('Profil Mocy Rowerowej (Automatyczny)')}")
@@ -1238,6 +1186,19 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
                 st.plotly_chart(fig_w, use_container_width=True)
             else: st.info(tr("Brak wpisów wagi dla tego zawodnika."))
         else: st.info(tr("Brak wpisów wagi w bazie."))
+        
+    with tab5:
+        st.markdown("### 🔵 Autoryzacja Garmin Connect")
+        st.markdown("<span style='color:#8BA1B8;'>Podaj dane logowania, aby aplikacja Endura IQ mogła automatycznie wysyłać zaplanowane treningi prosto do Twojego kalendarza w zegarku.</span>", unsafe_allow_html=True)
+        creds = db["garmin_creds"].get(sel_user, {})
+        with st.form("garmin_form"):
+            g_email = st.text_input("E-mail Garmin", value=creds.get("email", ""))
+            g_pass = st.text_input("Hasło Garmin", value=creds.get("password", ""), type="password")
+            if st.form_submit_button("Zapisz połączenie z chmurą"):
+                temp_gc = db["garmin_creds"]
+                temp_gc[sel_user] = {"email": g_email, "password": g_pass}
+                db["garmin_creds"] = temp_gc
+                st.success("Zapisano dane. Od teraz możesz wysyłać treningi prosto z kalendarza!")
 
 # --- 5. RAPORTY PDF ---
 elif menu == tr("Raporty"):
@@ -1258,10 +1219,7 @@ elif menu == tr("Strefy"):
     st.title(tr("Strefy"))
     sel_user = st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY) if st.session_state.role=="coach" else ja
     
-    # Wybór dyscypliny dla stref
     sel_disc = st.selectbox(tr("Dyscyplina"), ["Rower", "Bieganie", "Pływanie", "Siłownia", "Inne"], format_func=tr)
-    
-    # Pobieramy konkretne strefy tylko dla wybranej dyscypliny zawodnika
     user_data = get_user_zones(sel_user, sel_disc)
     
     c1, c2, c3 = st.columns(3)
@@ -1274,7 +1232,6 @@ elif menu == tr("Strefy"):
         user_data["ftp"] = new_ftp
         user_data["lthr"] = new_lthr
         
-        # Bezpieczny zapis do bazy dla konkretnej dyscypliny
         temp_db = db["strefy"]
         if sel_user not in temp_db: temp_db[sel_user] = {}
         temp_db[sel_user][sel_disc] = user_data
