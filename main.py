@@ -232,7 +232,6 @@ def get_user_zones(zawodnik, dyscyplina="Rower"):
     if isinstance(db["strefy"], list): db["strefy"] = {}
     all_zones = db["strefy"].get(zawodnik, {})
     
-    # Migracja starej struktury (jeśli zawodnik miał płaskie strefy bez dyscyplin)
     if "ftp" in all_zones and "Rower" not in all_zones:
         old_ftp = all_zones.get("ftp", 250)
         old_lthr = all_zones.get("lthr", 170)
@@ -342,7 +341,7 @@ def get_next_race(zawodnik):
     future_races.sort(key=lambda x: x[1])
     return future_races[0]
 
-# --- NATIVE GARMIN FIT SDK ENGINE (ZAKTUALIZOWANY DLA NOWYCH URZĄDZEŃ) ---
+# --- NATIVE GARMIN FIT SDK ENGINE (NAPRAWIONY DLA FENIX 7 / EDGE) ---
 class FitWriter:
     def __init__(self):
         self.data = bytearray()
@@ -364,26 +363,24 @@ class FitWriter:
         self.data = bytearray()
         ts = int(time.time()) - 631065600 
         
-        # 1. File ID (Wymagane przez każdy zegarek)
+        # 1. File ID Message
         self.write_def(0, 0, [(0, 1, 0x00), (1, 2, 0x84), (2, 2, 0x84), (3, 4, 0x8C), (4, 4, 0x86)])
-        self.write_data(0, struct.pack('<B H H I I', 5, 1, 0xFFFF, int(time.time()), ts))
+        # manufacturer=1 (Garmin), product=0, serial=ts, time_created=ts
+        self.write_data(0, struct.pack('<B H H I I', 5, 1, 0, ts, ts))
         
-        # 2. File Creator (Dodane specjalnie dla nowych Garminów, np. Fenix 7)
-        self.write_def(1, 49, [(0, 2, 0x84), (1, 1, 0x00)])
-        self.write_data(1, struct.pack('<H B', 100, 1))
-
-        # 3. Workout Header
-        self.write_def(2, 26, [(8, 16, 0x07), (4, 2, 0x84), (5, 1, 0x00)])
-        self.write_data(2, self.clean_ascii(name, 16) + struct.pack('<H B', len(steps), sport_enum))
+        # 2. Workout Header
+        self.write_def(1, 26, [(8, 16, 0x07), (4, 2, 0x84), (5, 1, 0x00)])
+        self.write_data(1, self.clean_ascii(name, 16) + struct.pack('<H B', len(steps), sport_enum))
         
-        # 4. Workout Steps
-        self.write_def(3, 27, [(254, 2, 0x84), (0, 16, 0x07), (1, 1, 0x00), (2, 4, 0x86), (3, 1, 0x00), (4, 4, 0x86), (5, 4, 0x86), (6, 4, 0x86), (7, 1, 0x00)])
+        # 3. Workout Steps
+        self.write_def(2, 27, [(254, 2, 0x84), (0, 16, 0x07), (1, 1, 0x00), (2, 4, 0x86), (3, 1, 0x00), (4, 4, 0x86), (5, 4, 0x86), (6, 4, 0x86), (7, 1, 0x00)])
         for idx, s in enumerate(steps):
             sd = struct.pack('<H', idx) + self.clean_ascii(s['name'], 16) + struct.pack('<B I B I I I B', s['d_type'], s['d_val'], s['t_type'], s['t_val'], s['t_low'], s['t_high'], s['intens'])
-            self.write_data(3, sd)
+            self.write_data(2, sd)
             
-        header = bytearray([14, 16, 217, 7]) + struct.pack('<I', len(self.data)) + b'.FIT'
-        header += struct.pack('<H', self.compute_crc(header[:12]))
+        # Protokół 2.0 (0x20) - to to zmusza Fenixy 7 do akceptacji pliku
+        header = struct.pack('<BBHI4s', 14, 0x20, 2141, len(self.data), b'.FIT')
+        header += struct.pack('<H', self.compute_crc(header))
         ff = header + self.data
         return bytes(ff + struct.pack('<H', self.compute_crc(ff)))
 
@@ -393,37 +390,41 @@ def create_binary_fit(workout_data, ftp=250):
     intens_map = {"Rozgrzewka": 2, "Interwał": 0, "Przerwa": 1, "Rozjazd": 3}
     name_map = {"Rozgrzewka": "Warmup", "Interwał": "Work", "Przerwa": "Rest", "Rozjazd": "Cooldown"}
     steps = []
+    
     for k in workout_data.get('kroki', []):
         d_type = 1 if k.get('is_distance') else 0
         d_val = int(k.get('dystans_km', 0) * 100000) if d_type == 1 else int(k.get('czas_total_sec', 0) * 1000)
+        d_val = max(d_val, 1000) # Zabezpieczenie przed zerowym czasem kroku
+        
         mode = k.get('tryb', '')
         v_min = float(k.get('val_min', 0))
         v_max = float(k.get('val_max', 0))
         
-        # Kluczowa zmiana: t_val musi wynosić 0 (kod Custom w Garminie)
-        t_type = 1 
+        # Domyślnie: Open (brak określonego celu, np. krok na RPE)
+        t_type = 2 
         t_val = 0  
         c_low = 0
         c_high = 0
         
-        if "Waty" in mode: 
-            t_type = 4 
-            c_low = int(min(v_min, v_max)) + 1000
-            c_high = int(max(v_min, v_max)) + 1000
-        elif "%" in mode: 
-            t_type = 4
-            c_low = int((min(v_min, v_max) / 100) * ftp) + 1000
-            c_high = int((max(v_min, v_max) / 100) * ftp) + 1000
-        elif "Tętno" in mode: 
-            t_type = 1
-            c_low = int(min(v_min, v_max)) + 100
-            c_high = int(max(v_min, v_max)) + 100
-        elif "Tempo" in mode and v_min > 0 and v_max > 0: 
-            t_type = 0
-            c_low = min(int(1000 / (v_min * 60) * 1000), int(1000 / (v_max * 60) * 1000))
-            c_high = max(int(1000 / (v_min * 60) * 1000), int(1000 / (v_max * 60) * 1000))
+        if v_min > 0 or v_max > 0:
+            if "Waty" in mode: 
+                t_type = 4 
+                c_low = int(min(v_min, v_max)) + 1000
+                c_high = int(max(v_min, v_max)) + 1000
+            elif "%" in mode: 
+                t_type = 4
+                c_low = int((min(v_min, v_max) / 100) * ftp) + 1000
+                c_high = int((max(v_min, v_max) / 100) * ftp) + 1000
+            elif "Tętno" in mode: 
+                t_type = 1
+                c_low = int(min(v_min, v_max)) + 100
+                c_high = int(max(v_min, v_max)) + 100
+            elif "Tempo" in mode: 
+                t_type = 0
+                c_low = min(int(1000 / (v_min * 60) * 1000), int(1000 / (v_max * 60) * 1000))
+                c_high = max(int(1000 / (v_min * 60) * 1000), int(1000 / (v_max * 60) * 1000))
             
-        steps.append({'name': name_map.get(k.get('typ'), "Step"), 'd_type': d_type, 'd_val': max(d_val, 1000), 't_type': t_type, 't_val': t_val, 't_low': c_low, 't_high': c_high, 'intens': intens_map.get(k.get('typ'), 0)})
+        steps.append({'name': name_map.get(k.get('typ'), "Step"), 'd_type': d_type, 'd_val': d_val, 't_type': t_type, 't_val': t_val, 't_low': c_low, 't_high': c_high, 'intens': intens_map.get(k.get('typ'), 0)})
         
     return writer.generate(str(workout_data.get('tytul', 'Workout'))[:15], sport_enum, steps)
 
@@ -477,11 +478,7 @@ def parse_tcx_pro(uploaded_file, athlete_all_zones):
         disc_zones = athlete_all_zones.get(res["sport"], {})
         user_ftp = disc_zones.get("ftp", 250) if isinstance(disc_zones, dict) else 250
         user_lthr = disc_zones.get("lthr", 170) if isinstance(disc_zones, dict) else 170
-        # Obsługa starego formatu (migracja)
-        if "ftp" in athlete_all_zones and res["sport"] not in athlete_all_zones:
-            user_ftp = athlete_all_zones.get("ftp", 250)
-            user_lthr = athlete_all_zones.get("lthr", 170)
-            
+        
         lap_c = 1; el_s = 0; hr_s = 0; hr_c = 0; pw_s = 0; pw_c = 0; active_time = 0; start_time_dt = None
         for lap in root.iter():
             if lap.tag.endswith("Lap"):
@@ -685,7 +682,6 @@ def render_analysis_dashboard(t, user_settings):
         fig.update_layout(template="plotly_dark", height=500, showlegend=False, margin=dict(l=50,r=10,t=30,b=10), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig, use_container_width=True)
 
-        # --- NAPRAWIONY WYKRES CZASU W STREFACH ---
         if streams and (any(streams.get('hr', [])) or any(streams.get('watts', []))):
             st.markdown(f"### 📊 {tr('Czas w strefach')}")
             cz1, cz2 = st.columns(2)
@@ -797,7 +793,6 @@ if menu == tr("Dodaj aktywność"):
             is_file_mode = False
             if up:
                 is_file_mode = True
-                # Przekazujemy wszystkie strefy zawodnika, żeby parser sam wybrał dyscyplinę
                 parsed = parse_tcx_pro(up, db["strefy"].get(ja, {}))
                 if parsed['time'] > 0: st.session_state.form_data = parsed; st.success(f"✅ {tr('Przetworzono:')} {parsed['dist']} km")
 
@@ -850,7 +845,6 @@ if menu == tr("Dodaj aktywność"):
         df_plan = get_df(ja)
         for idx, row in df_plan.sort_values('data', ascending=False).iterrows():
             with st.expander(f"{'✅' if row['wykonany'] else '⬜'} {row['data']} | {tr(row['dyscyplina'])} - {row['tytul']}"):
-                # W zależności od dyscypliny, podajemy właściwe strefy
                 u_strefy_disc = get_user_zones(ja, row['dyscyplina'])
                 if not row['wykonany']: render_planned_workout_view(row, u_strefy_disc.get('ftp', 250))
                 else: 
@@ -961,7 +955,6 @@ elif menu == tr("Kalendarz"):
                             st.success(tr("Zaplanowano!")); st.session_state.cal_click_date = None; st.rerun()
 
             events = przygotuj_kalendarz(target)
-            # Dynamiczny klucz kalendarza zapobiega zawieszaniu się przy zmianie zawodnika
             cal = calendar(events=events, options={"initialView": "dayGridMonth", "initialDate": str(date.today()), "firstDay": 1, "selectable": True, "dateClick": True, "height": 700}, key=f'cal_view_{target}', callbacks=['dateClick', 'eventClick'])
             if cal.get("dateClick"):
                 selected = cal["dateClick"]["dateStr"]
@@ -975,7 +968,6 @@ elif menu == tr("Kalendarz"):
                     if not match_df.empty: 
                         st.subheader(f"{tr('Szczegóły:')} {props.get('tytul')}")
                         t_dict = match_df.iloc[0].to_dict()
-                        # Pobranie stref do podglądu uwzględniając dyscyplinę
                         render_analysis_dashboard(t_dict, get_user_zones(target, t_dict['dyscyplina']))
                     else: st.info(tr("Nie znaleziono szczegółów. Sprawdź listę zadań."))
 
@@ -1251,7 +1243,6 @@ elif menu == tr("Strefy"):
         st.rerun()
         
     c1, c2 = st.columns(2)
-    # Dodany klucz, żeby Streamlit nie wyrzucał błędów duplikatów przy zmianie zawodnika
     with c1: st.subheader(tr("Moc")); edited_pwr = st.data_editor(pd.DataFrame(user_data["zones_pwr"]), column_order=["Strefa", "Min", "Max"], hide_index=True, key=f"pwr_{sel_user}_{sel_disc}")
     with c2: st.subheader(tr("Tętno")); edited_hr = st.data_editor(pd.DataFrame(user_data["zones_hr"]), column_order=["Strefa", "Min", "Max"], hide_index=True, key=f"hr_{sel_user}_{sel_disc}")
     
