@@ -8,3 +8,4 @@ pymongo
 dnspython
 certifi
 garmin-fit-sdk
+python-garminconnect
