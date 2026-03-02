@@ -11,6 +11,7 @@ import base64
 import struct
 import time
 import unicodedata
+import io
 from streamlit_calendar import calendar
 
 st.set_page_config(page_title="Endura IQ", layout="wide", initial_sidebar_state="expanded")
@@ -339,7 +340,7 @@ def get_next_race(zawodnik):
     future_races.sort(key=lambda x: x[1])
     return future_races[0]
 
-# --- NOWOŚĆ: BEZPOŚREDNIE API GARMIN CONNECT (POPRAWIONA ODPOWIEDŹ API) ---
+# --- API GARMIN CONNECT (WYSYŁANIE) ---
 def send_workout_to_garmin_connect(email, password, workout_data):
     import garminconnect
     client = garminconnect.Garmin(email, password)
@@ -381,7 +382,6 @@ def send_workout_to_garmin_connect(email, password, workout_data):
         "workoutSegments": [{"segmentOrder": 1, "sportType": {"sportTypeId": sport_id, "sportTypeKey": sport_key}, "workoutSteps": steps}]
     }
     
-    # Bezpieczne uderzenie do API (wyłapuje formaty odpowiedzi httpx.Response oraz dict)
     res = client.garth.post("connectapi", "/workout-service/workout", json=payload)
     res_dict = res.json() if hasattr(res, "json") else (res if isinstance(res, dict) else {})
     
@@ -393,6 +393,88 @@ def send_workout_to_garmin_connect(email, password, workout_data):
     else:
         return False, f"Błąd po stronie serwerów Garmin: {str(res_dict)[:150]}"
 
+# --- NOWOŚĆ: API GARMIN CONNECT (POBIERANIE HISTORII) ---
+def sync_from_garmin(zawodnik, email, password, limit=10):
+    import garminconnect
+    client = garminconnect.Garmin(email, password)
+    client.login()
+    
+    activities = client.get_activities(0, limit)
+    added_count = 0
+    
+    # Sprawdzamy jakie ID Garmina już mamy w bazie, żeby uniknąć duplikatów
+    existing_ids = [str(w.get("garmin_id")) for w in st.session_state.session_treningi if w.get("zawodnik") == zawodnik and w.get("garmin_id")]
+    
+    # Do parsowania plików używamy wszystkich stref zawodnika
+    athlete_zones = db["strefy"].get(zawodnik, {})
+    
+    for act in activities:
+        a_id = str(act.get('activityId'))
+        if a_id in existing_ids:
+            continue
+            
+        try:
+            # Pobieramy pełen, surowy plik TCX treningu z chmury Garmina
+            tcx_bytes = client.download_activity(act['activityId'], dl_fmt=garminconnect.ActivityDownloadFormat.TCX)
+            tcx_file = io.BytesIO(tcx_bytes)
+            
+            parsed = parse_tcx_pro(tcx_file, athlete_zones)
+            
+            # Mapowanie sportu z systemu Garmin na system Endura IQ
+            garmin_type = act.get('activityType', {}).get('typeKey', '')
+            if "run" in garmin_type: sport = "Bieganie"
+            elif "cycling" in garmin_type: sport = "Rower"
+            elif "swim" in garmin_type: sport = "Pływanie"
+            elif "strength" in garmin_type: sport = "Siłownia"
+            else: sport = "Inne"
+            
+            if parsed['sport'] != "Inne": sport = parsed['sport']
+            
+            start_time_local = act.get('startTimeLocal', '') 
+            act_date = start_time_local.split(" ")[0] if start_time_local else str(date.today())
+            
+            dist_km = round(act.get('distance', 0) / 1000, 2)
+            duration_min = int(act.get('duration', 0) / 60)
+            
+            # Z parsera TCX dane są często dokładniejsze
+            if parsed['time'] > 0: duration_min = parsed['time']
+            if parsed['dist'] > 0: dist_km = parsed['dist']
+            
+            tytul = act.get('activityName', 'Trening bez nazwy')
+            if not tytul or tytul == 'Bez nazwy':
+                tytul = f"{tr(sport)}: {dist_km}km"
+                
+            new_entry = {
+                "zawodnik": zawodnik,
+                "garmin_id": a_id,
+                "dyscyplina": sport,
+                "data": act_date,
+                "tytul": tytul,
+                "czas": duration_min,
+                "dystans": dist_km,
+                "tss": parsed['tss'] if parsed['tss'] > 0 else int((duration_min/60)*50),
+                "avg_power": parsed['avg_power'],
+                "wykonany": True,
+                "komentarz": "Zsynchronizowano automatycznie z chmury Garmin Connect",
+                "rpe": 5, 
+                "feeling": "🙂", 
+                "streams": parsed.get('streams'),
+                "laps": parsed.get('laps'),
+                "peak_powers": parsed.get('peak_powers', {}),
+                "best_times": parsed.get('best_times', {}),
+                "komentarze_treningu": []
+            }
+            
+            save_data(new_entry)
+            added_count += 1
+            
+        except Exception as e:
+            print(f"Błąd przy aktywności {a_id}: {e}")
+            continue
+            
+    return added_count
+
+# --- ZWO GENERATOR ---
 def generate_zwo_file(workout_data):
     xml = "<workout_file>\n<author>TriCoach Pro</author>\n"
     xml += f"<name>{workout_data['tytul']}</name>\n<description>{workout_data.get('komentarz','')}</description>\n<sportType>bike</sportType>\n<workout>\n"
@@ -589,7 +671,6 @@ def render_planned_workout_view(t, user_ftp=250):
         st.markdown("---")
         st.markdown("### ☁️ Synchronizacja")
         
-        # PRZYCISK: WYŚLIJ PROSTO DO GARMIN CONNECT
         if st.button("🚀 Wyślij prosto do Garmin Connect (WiFi / Bluetooth)", key=f"gc_{t['tytul']}_{t['data']}"):
             with st.spinner("Łączenie z serwerami Garmin..."):
                 zawodnik = t.get('zawodnik')
@@ -771,7 +852,33 @@ if menu == tr("Dodaj aktywność"):
     col_main, col_side = st.columns([3, 1])
     with col_side: render_tp_weekly_list(get_df(ja))
     with col_main:
-        with st.expander(tr("Zgłoś Trening (Upload TCX)"), expanded=True):
+        
+        # --- NOWOŚĆ: AUTOMATYCZNE POBIERANIE Z GARMIN CONNECT ---
+        with st.expander("🔄 Pobierz automatycznie z Garmin Connect", expanded=True):
+            st.markdown("<span style='color:#8BA1B8; font-size:0.9em;'>Aplikacja sama znajdzie Twoje ostatnie treningi w chmurze Garmina, pobierze ich ukryte pliki TCX i dokona pełnej analizy.</span>", unsafe_allow_html=True)
+            g_creds = db["garmin_creds"].get(ja, {})
+            
+            if g_creds.get("email") and g_creds.get("password"):
+                c_sync1, c_sync2 = st.columns([2, 1])
+                sync_limit = c_sync1.selectbox("Ile ostatnich aktywności sprawdzić?", [10, 30, 90])
+                if c_sync2.button("📥 Pobierz teraz"):
+                    with st.spinner(f"Łączenie z Garmin Connect i pobieranie {sync_limit} aktywności... (to potrwa kilkanaście sekund)"):
+                        try:
+                            added = sync_from_garmin(ja, g_creds["email"], g_creds["password"], sync_limit)
+                            if added > 0:
+                                st.success(f"Zakończono! Pomyślnie pobrano i zanalizowano {added} nowych treningów.")
+                                st.balloons()
+                            else:
+                                st.info("Wszystkie treningi z wybranego okresu są już w Twojej bazie Endura IQ. Nie znaleziono nowych.")
+                            time.sleep(2)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Błąd synchronizacji: {str(e)}")
+            else:
+                st.warning("⚠️ Zanim pobierzesz treningi, musisz podać dane logowania do Garmina w zakładce 'Dane zawodnika' -> 'Integracje 🔗'")
+
+        # Stary, ręczny uploader zwinięty
+        with st.expander("📂 Ręczne wgranie pliku (TCX)", expanded=False):
             up = st.file_uploader(tr("Wgraj plik z zegarka"), type=['tcx'])
             if 'form_data' not in st.session_state: st.session_state.form_data = {'date': date.today(), 'time': 45, 'dist': 5.0, 'tss': 30, 'sport': 'Bieganie', 'avg_power': 0, 'streams': None, 'laps': [], 'peak_powers': {}, 'best_times': {}}
             is_file_mode = False
@@ -1036,7 +1143,6 @@ elif menu == tr("Kalendarz"):
                         render_analysis_dashboard(t_row.to_dict(), get_user_zones(target, t_row['dyscyplina']))
         else:
             st.info(tr("Brak wykonanych aktywności."))
-
 
 # --- 3. DASHBOARD ---
 elif menu == tr("Dashboard"):
