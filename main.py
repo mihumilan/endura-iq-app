@@ -339,7 +339,7 @@ def get_next_race(zawodnik):
     future_races.sort(key=lambda x: x[1])
     return future_races[0]
 
-# --- NOWOŚĆ: BEZPOŚREDNIE API GARMIN CONNECT ---
+# --- NOWOŚĆ: BEZPOŚREDNIE API GARMIN CONNECT (POPRAWIONA ODPOWIEDŹ API) ---
 def send_workout_to_garmin_connect(email, password, workout_data):
     import garminconnect
     client = garminconnect.Garmin(email, password)
@@ -353,48 +353,46 @@ def send_workout_to_garmin_connect(email, password, workout_data):
         typ_str = k.get('typ', 'Interwał')
         s_id, s_key = (1, "warmup") if typ_str == "Rozgrzewka" else ((2, "cooldown") if typ_str == "Rozjazd" else ((4, "rest") if typ_str == "Przerwa" else (3, "active")))
         
-        if k.get('is_distance'):
-            cond_id, cond_key = 3, "distance"
-            cond_val = int(k.get('dystans_km', 0) * 1000)
-        else:
-            cond_id, cond_key = 2, "time"
-            cond_val = int(k.get('czas_total_sec', 0))
-            if cond_val == 0: cond_val = 60
-            
-        desc = f"{k.get('tryb','')} {k.get('val_min',0)}-{k.get('val_max',0)}"
-        if float(k.get('val_min',0)) == 0 and float(k.get('val_max',0)) == 0:
-            desc = "Luźno / RPE"
-            
-        steps.append({
+        step_dict = {
             "type": "ExecutableStepDTO",
             "stepId": i+1,
             "stepOrder": i+1,
-            "description": desc[:50],
+            "description": f"{k.get('tryb','')} {k.get('val_min',0)}-{k.get('val_max',0)}"[:50],
             "stepType": {"stepTypeId": s_id, "stepTypeKey": s_key},
-            "endCondition": {"conditionTypeId": cond_id, "conditionTypeKey": cond_key},
-            "endConditionValue": cond_val,
-            "targetType": {"workoutTargetTypeId": 1, "workoutTargetTypeKey": "no.target"}
-        })
+            "targetType": {"workoutTargetTypeId": 1, "workoutTargetTypeKey": "no.target"},
+            "targetValueOne": None,
+            "targetValueTwo": None
+        }
+        
+        if k.get('is_distance'):
+            step_dict["endCondition"] = {"conditionTypeId": 3, "conditionTypeKey": "distance"}
+            step_dict["endConditionValue"] = int(k.get('dystans_km', 0) * 1000)
+        else:
+            step_dict["endCondition"] = {"conditionTypeId": 2, "conditionTypeKey": "time"}
+            val_sec = int(k.get('czas_total_sec', 0))
+            step_dict["endConditionValue"] = val_sec if val_sec > 0 else 60
+            
+        steps.append(step_dict)
         
     payload = {
         "workoutName": "".join([c for c in str(workout_data.get('tytul', 'Workout')) if c.isalnum() or c in " -_"])[:15],
-        "description": workout_data.get('komentarz', 'Wygenerowano przez Endura IQ'),
+        "description": str(workout_data.get('komentarz', 'Wygenerowano przez Endura IQ'))[:200],
         "sportType": {"sportTypeId": sport_id, "sportTypeKey": sport_key},
         "workoutSegments": [{"segmentOrder": 1, "sportType": {"sportTypeId": sport_id, "sportTypeKey": sport_key}, "workoutSteps": steps}]
     }
     
-    # POPRAWIONY KOD NA ZGODNY Z NAJNOWSZĄ BIBLIOTEKĄ GARMINCONNECT
+    # Bezpieczne uderzenie do API (wyłapuje formaty odpowiedzi httpx.Response oraz dict)
     res = client.garth.post("connectapi", "/workout-service/workout", json=payload)
+    res_dict = res.json() if hasattr(res, "json") else (res if isinstance(res, dict) else {})
     
-    if res and type(res) == dict and res.get("workoutId"):
-        w_id = res["workoutId"]
+    if isinstance(res_dict, dict) and res_dict.get("workoutId"):
+        w_id = res_dict["workoutId"]
         w_date = str(workout_data.get('data', date.today()))
         client.garth.post("connectapi", f"/workout-service/schedule/{w_id}", json={"date": w_date})
-        return True, "Zrobione! Trening jest już w kalendarzu Twojego konta Garmin Connect. Odpal aplikację Garmina w telefonie, żeby zsynchronizować zegarek!"
+        return True, "Zrobione! Trening jest gotowy w kalendarzu. Uruchom Garmin Connect w telefonie, żeby zsynchronizować zegarek."
     else:
-        return False, "Nie udało się utworzyć treningu po stronie serwerów Garmina."
+        return False, f"Błąd po stronie serwerów Garmin: {str(res_dict)[:150]}"
 
-# --- ZWO GENERATOR ---
 def generate_zwo_file(workout_data):
     xml = "<workout_file>\n<author>TriCoach Pro</author>\n"
     xml += f"<name>{workout_data['tytul']}</name>\n<description>{workout_data.get('komentarz','')}</description>\n<sportType>bike</sportType>\n<workout>\n"
@@ -612,10 +610,8 @@ def render_planned_workout_view(t, user_ftp=250):
                             st.error(f"⚠️ Błąd integracji: {str(e)}")
 
         st.markdown("<br>", unsafe_allow_html=True)
-
-        c1_dl, c2_dl = st.columns(2)
         safe_fn = "".join([c for c in unicodedata.normalize('NFKD', str(t['tytul'])).encode('ASCII', 'ignore').decode('utf-8') if c.isalnum() or c in " -_"]).strip() or "Workout"
-        c1_dl.download_button(tr("Pobierz plik .ZWO (Zwift)"), data=generate_zwo_file(t), file_name=f"{safe_fn}.zwo", mime="text/xml")
+        st.download_button(tr("Pobierz plik .ZWO (Zwift)"), data=generate_zwo_file(t), file_name=f"{safe_fn}.zwo", mime="text/xml")
     else: st.warning(tr("Tylko opis tekstowy."))
 
 def render_analysis_dashboard(t, user_settings):
@@ -781,7 +777,6 @@ if menu == tr("Dodaj aktywność"):
             is_file_mode = False
             if up:
                 is_file_mode = True
-                # Przekazujemy wszystkie strefy zawodnika, żeby parser sam wybrał dyscyplinę
                 parsed = parse_tcx_pro(up, db["strefy"].get(ja, {}))
                 if parsed['time'] > 0: st.session_state.form_data = parsed; st.success(f"✅ {tr('Przetworzono:')} {parsed['dist']} km")
 
