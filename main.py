@@ -342,7 +342,7 @@ def get_next_race(zawodnik):
     future_races.sort(key=lambda x: x[1])
     return future_races[0]
 
-# --- NATIVE GARMIN FIT SDK ENGINE ---
+# --- NATIVE GARMIN FIT SDK ENGINE (ZAKTUALIZOWANY DLA NOWYCH URZĄDZEŃ) ---
 class FitWriter:
     def __init__(self):
         self.data = bytearray()
@@ -363,14 +363,25 @@ class FitWriter:
     def generate(self, name, sport_enum, steps):
         self.data = bytearray()
         ts = int(time.time()) - 631065600 
+        
+        # 1. File ID (Wymagane przez każdy zegarek)
         self.write_def(0, 0, [(0, 1, 0x00), (1, 2, 0x84), (2, 2, 0x84), (3, 4, 0x8C), (4, 4, 0x86)])
-        self.write_data(0, struct.pack('<B H H I I', 5, 1, 0xFFFF, 0xFFFFFFFF, ts))
-        self.write_def(1, 26, [(8, 16, 0x07), (4, 2, 0x84), (5, 1, 0x00)])
-        self.write_data(1, self.clean_ascii(name, 16) + struct.pack('<H B', len(steps), sport_enum))
-        self.write_def(2, 27, [(254, 2, 0x84), (0, 16, 0x07), (1, 1, 0x00), (2, 4, 0x86), (3, 1, 0x00), (4, 4, 0x86), (5, 4, 0x86), (6, 4, 0x86), (7, 1, 0x00)])
+        self.write_data(0, struct.pack('<B H H I I', 5, 1, 0xFFFF, int(time.time()), ts))
+        
+        # 2. File Creator (Dodane specjalnie dla nowych Garminów, np. Fenix 7)
+        self.write_def(1, 49, [(0, 2, 0x84), (1, 1, 0x00)])
+        self.write_data(1, struct.pack('<H B', 100, 1))
+
+        # 3. Workout Header
+        self.write_def(2, 26, [(8, 16, 0x07), (4, 2, 0x84), (5, 1, 0x00)])
+        self.write_data(2, self.clean_ascii(name, 16) + struct.pack('<H B', len(steps), sport_enum))
+        
+        # 4. Workout Steps
+        self.write_def(3, 27, [(254, 2, 0x84), (0, 16, 0x07), (1, 1, 0x00), (2, 4, 0x86), (3, 1, 0x00), (4, 4, 0x86), (5, 4, 0x86), (6, 4, 0x86), (7, 1, 0x00)])
         for idx, s in enumerate(steps):
             sd = struct.pack('<H', idx) + self.clean_ascii(s['name'], 16) + struct.pack('<B I B I I I B', s['d_type'], s['d_val'], s['t_type'], s['t_val'], s['t_low'], s['t_high'], s['intens'])
-            self.write_data(2, sd)
+            self.write_data(3, sd)
+            
         header = bytearray([14, 16, 217, 7]) + struct.pack('<I', len(self.data)) + b'.FIT'
         header += struct.pack('<H', self.compute_crc(header[:12]))
         ff = header + self.data
@@ -385,13 +396,35 @@ def create_binary_fit(workout_data, ftp=250):
     for k in workout_data.get('kroki', []):
         d_type = 1 if k.get('is_distance') else 0
         d_val = int(k.get('dystans_km', 0) * 100000) if d_type == 1 else int(k.get('czas_total_sec', 0) * 1000)
-        mode = k.get('tryb', ''); v_min = float(k.get('val_min', 0)); v_max = float(k.get('val_max', 0))
-        t_type = 2; t_val = 0xFFFFFFFF; c_low = 0xFFFFFFFF; c_high = 0xFFFFFFFF
-        if "Waty" in mode: t_type=4; c_low=int(min(v_min, v_max))+1000; c_high=int(max(v_min, v_max))+1000
-        elif "%" in mode: t_type=4; c_low=int((min(v_min, v_max)/100)*ftp)+1000; c_high=int((max(v_min, v_max)/100)*ftp)+1000
-        elif "Tętno" in mode: t_type=1; c_low=int(min(v_min, v_max))+100; c_high=int(max(v_min, v_max))+100
-        elif "Tempo" in mode and v_min>0 and v_max>0: t_type=0; c_low=min(int(1000/(v_min*60)*1000), int(1000/(v_max*60)*1000)); c_high=max(int(1000/(v_min*60)*1000), int(1000/(v_max*60)*1000))
+        mode = k.get('tryb', '')
+        v_min = float(k.get('val_min', 0))
+        v_max = float(k.get('val_max', 0))
+        
+        # Kluczowa zmiana: t_val musi wynosić 0 (kod Custom w Garminie)
+        t_type = 1 
+        t_val = 0  
+        c_low = 0
+        c_high = 0
+        
+        if "Waty" in mode: 
+            t_type = 4 
+            c_low = int(min(v_min, v_max)) + 1000
+            c_high = int(max(v_min, v_max)) + 1000
+        elif "%" in mode: 
+            t_type = 4
+            c_low = int((min(v_min, v_max) / 100) * ftp) + 1000
+            c_high = int((max(v_min, v_max) / 100) * ftp) + 1000
+        elif "Tętno" in mode: 
+            t_type = 1
+            c_low = int(min(v_min, v_max)) + 100
+            c_high = int(max(v_min, v_max)) + 100
+        elif "Tempo" in mode and v_min > 0 and v_max > 0: 
+            t_type = 0
+            c_low = min(int(1000 / (v_min * 60) * 1000), int(1000 / (v_max * 60) * 1000))
+            c_high = max(int(1000 / (v_min * 60) * 1000), int(1000 / (v_max * 60) * 1000))
+            
         steps.append({'name': name_map.get(k.get('typ'), "Step"), 'd_type': d_type, 'd_val': max(d_val, 1000), 't_type': t_type, 't_val': t_val, 't_low': c_low, 't_high': c_high, 'intens': intens_map.get(k.get('typ'), 0)})
+        
     return writer.generate(str(workout_data.get('tytul', 'Workout'))[:15], sport_enum, steps)
 
 # --- ZWO GENERATOR ---
@@ -661,7 +694,6 @@ def render_analysis_dashboard(t, user_settings):
                 z_pwr = calculate_time_in_zones_custom(streams['watts'], user_settings["zones_pwr"], t.get('czas', 0))
                 if z_pwr:
                     df_zp = pd.DataFrame(z_pwr)
-                    # Zmienione x='mins' aby wykres słupkowy opierał się na realnych minutach
                     fig_zp = px.bar(df_zp, x='mins', y='label', orientation='h', title=tr("Moc"), text=df_zp['mins'].apply(lambda x: f"{x} min"), color='label', color_discrete_sequence=ZONE_COLORS)
                     fig_zp.update_layout(template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                     cz1.plotly_chart(fig_zp, use_container_width=True)
@@ -670,7 +702,6 @@ def render_analysis_dashboard(t, user_settings):
                 z_hr = calculate_time_in_zones_custom(streams['hr'], user_settings["zones_hr"], t.get('czas', 0))
                 if z_hr:
                     df_zh = pd.DataFrame(z_hr)
-                    # Zmienione x='mins'
                     fig_zh = px.bar(df_zh, x='mins', y='label', orientation='h', title=tr("Tętno"), text=df_zh['mins'].apply(lambda x: f"{x} min"), color='label', color_discrete_sequence=ZONE_COLORS)
                     fig_zh.update_layout(template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                     cz2.plotly_chart(fig_zh, use_container_width=True)
