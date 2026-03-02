@@ -354,7 +354,7 @@ class FitWriter:
         
     def clean_ascii(self, text, length):
         text = unicodedata.normalize('NFKD', str(text)).encode('ASCII', 'ignore').decode('utf-8')
-        # Gwarancja null-terminatora na końcu stringa
+        # Gwarancja null-terminatora na końcu stringa, czego wymaga Garmin
         return "".join([c for c in text if c.isalnum() or c in " -_()"]).encode('utf-8')[:length-1].ljust(length, b'\x00')
         
     def write_def(self, l_num, g_num, fields):
@@ -370,11 +370,13 @@ class FitWriter:
         
         # 1. File ID Message (mesg_num=0)
         self.write_def(0, 0, [(0, 1, 0x00), (1, 2, 0x84), (2, 2, 0x84), (3, 4, 0x8C), (4, 4, 0x86)])
-        self.write_data(0, struct.pack('<B H H I I', 5, 1, 0, ts, ts))
+        # manufacturer=255 (Development 3rd party), product=65535, serial=ts, time_created=ts
+        # Zabezpiecza przed cichym usuwaniem pliku z zegarka ze względu na fałszywy podpis "Garmin"
+        self.write_data(0, struct.pack('<B H H I I', 5, 255, 65535, ts, ts))
 
-        # 2. Workout Header (mesg_num=26)
-        self.write_def(1, 26, [(8, 16, 0x07), (4, 2, 0x84), (5, 1, 0x00)])
-        self.write_data(1, self.clean_ascii(name, 16) + struct.pack('<H B', len(steps), sport_enum))
+        # 2. Workout Header (mesg_num=26) z dodanym wymaganym SubSport (11)
+        self.write_def(1, 26, [(8, 16, 0x07), (4, 2, 0x84), (5, 1, 0x00), (11, 1, 0x00)])
+        self.write_data(1, self.clean_ascii(name, 16) + struct.pack('<H B B', len(steps), sport_enum, 254))
         
         # 3. Workout Steps (mesg_num=27)
         self.write_def(2, 27, [(254, 2, 0x84), (0, 16, 0x07), (1, 1, 0x00), (2, 4, 0x86), (3, 1, 0x00), (4, 4, 0x86), (5, 4, 0x86), (6, 4, 0x86), (7, 1, 0x00)])
@@ -382,7 +384,7 @@ class FitWriter:
             sd = struct.pack('<H', idx) + self.clean_ascii(s['name'], 16) + struct.pack('<B I B I I I B', s['d_type'], s['d_val'], s['t_type'], s['t_val'], s['t_low'], s['t_high'], s['intens'])
             self.write_data(2, sd)
             
-        # Zapis z użyciem bezpiecznego Protokołu 1.0 (0x10), Profile=2141
+        # Zapis z użyciem bezpiecznego i uniwersalnego Protokołu 1.0 (0x10), Profile=2141
         header = struct.pack('<BBHI4s', 14, 0x10, 2141, len(self.data), b'.FIT')
         header += struct.pack('<H', self.compute_crc(header))
         ff = header + self.data
@@ -390,9 +392,10 @@ class FitWriter:
 
 def create_binary_fit(workout_data, ftp=250):
     writer = FitWriter()
-    # Mapowanie sportów na zgodne z Garmin FIT
+    
+    # Mapowanie sportów na standard Garmin (Generic to 0)
     sport_map = {"Bieganie": 1, "Rower": 2, "Pływanie": 5}
-    sport_enum = sport_map.get(workout_data.get('dyscyplina'), 0) # 0 to Generic
+    sport_enum = sport_map.get(workout_data.get('dyscyplina'), 0) 
     
     intens_map = {"Rozgrzewka": 2, "Interwał": 0, "Przerwa": 1, "Rozjazd": 3}
     name_map = {"Rozgrzewka": "Warmup", "Interwał": "Work", "Przerwa": "Rest", "Rozjazd": "Cooldown"}
@@ -401,22 +404,22 @@ def create_binary_fit(workout_data, ftp=250):
     for k in workout_data.get('kroki', []):
         d_type = 1 if k.get('is_distance') else 0
         d_val = int(k.get('dystans_km', 0) * 100000) if d_type == 1 else int(k.get('czas_total_sec', 0) * 1000)
-        d_val = max(d_val, 1000) # Minimum 1 sekunda, żeby zegarek nie wybuchł
+        d_val = max(d_val, 1000) # Gwarancja minimum 1 sekundy, co blokuje crash zegarka
         
         mode = k.get('tryb', '')
         v_min = float(k.get('val_min', 0))
         v_max = float(k.get('val_max', 0))
         
-        # SUPER WAŻNE: Open Targets (RPE) muszą mieć wartość 0xFFFFFFFF, a nie 0!
+        # SUPER WAŻNE: Krok bez zdefiniowanego celu (np. RPE) musi być tzw. Open Target
         t_type = 2 
-        t_val = 0xFFFFFFFF
-        c_low = 0xFFFFFFFF
-        c_high = 0xFFFFFFFF
+        t_val = 0
+        c_low = 0
+        c_high = 0
         
         if v_min > 0 or v_max > 0:
             if "Waty" in mode or "%" in mode:
-                t_type = 4
-                t_val = 0 # 0 w Garminie to flaga "Użyj wartości własnych (Custom)"
+                t_type = 4 # Target mocy
+                t_val = 0  # 0 to polecenie "Użyj własnych (Custom) granic mocy"
                 if "Waty" in mode:
                     c_low = int(min(v_min, v_max)) + 1000
                     c_high = int(max(v_min, v_max)) + 1000
@@ -424,12 +427,12 @@ def create_binary_fit(workout_data, ftp=250):
                     c_low = int((min(v_min, v_max) / 100.0) * ftp) + 1000
                     c_high = int((max(v_min, v_max) / 100.0) * ftp) + 1000
             elif "Tętno" in mode:
-                t_type = 1
+                t_type = 1 # Target tętna
                 t_val = 0
                 c_low = int(min(v_min, v_max)) + 100
                 c_high = int(max(v_min, v_max)) + 100
             elif "Tempo" in mode:
-                t_type = 0
+                t_type = 0 # Target tempa
                 t_val = 0
                 c_low = min(int(1000 / (v_min * 60) * 1000), int(1000 / (v_max * 60) * 1000))
                 c_high = max(int(1000 / (v_min * 60) * 1000), int(1000 / (v_max * 60) * 1000))
