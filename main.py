@@ -203,7 +203,6 @@ def calculate_compliance(df):
     t = past[~past['wykonany']]['czas'].sum() + past[past['wykonany']]['czas'].sum()
     return int((past[past['wykonany']]['czas'].sum() / t) * 100) if t > 0 else 0
 
-# Zabezpieczono rzutowaniem float(z["max"]) aby wykres stref zawsze się rysował
 def calculate_time_in_zones_custom(stream, zone_defs, total_time_mins):
     if not stream or not zone_defs: return []
     zs = [{"label": z["Strefa"], "max": float(z["Max"]), "count": 0} for z in zone_defs]
@@ -227,7 +226,6 @@ def generuj_domyslne_strefy(ftp, lthr):
     h_zones = [{"Strefa": f"Z{i+1}", "Min": int(h_prev + (1 if i>0 else 0)), "Max": int(m*lthr)} for i, (m, h_prev) in enumerate(zip([0.81, 0.89, 0.93, 0.99, 1.02, 1.2], [0] + [int(x*lthr) for x in [0.81, 0.89, 0.93, 0.99, 1.02]]))]
     return pd.DataFrame(p_zones), pd.DataFrame(h_zones)
 
-# Nowa, super bezpieczna funkcja stref obsługująca DYSCYPLINY!
 def get_user_zones(zawodnik, dyscyplina="Rower"):
     if isinstance(db["strefy"], list): db["strefy"] = {}
     all_zones = db["strefy"].get(zawodnik, {})
@@ -341,52 +339,61 @@ def get_next_race(zawodnik):
     future_races.sort(key=lambda x: x[1])
     return future_races[0]
 
-# --- NATIVE GARMIN FIT SDK ENGINE (NAPRAWIONY DLA FENIX 7 / EDGE) ---
+
+# --- NATIVE GARMIN FIT SDK ENGINE (KULOODPORNY DLA FENIX / EDGE) ---
 class FitWriter:
     def __init__(self):
         self.data = bytearray()
         self.crc_table = [0x0000, 0xCC01, 0xD801, 0x1400, 0xF001, 0x3C00, 0x2800, 0xE401, 0xA001, 0x6C00, 0x7800, 0xB401, 0x5000, 0x9C01, 0x8801, 0x4400]
+        
     def compute_crc(self, payload, crc=0):
         for byte in payload:
             crc = (crc >> 4) & 0x0FFF ^ self.crc_table[crc & 0xF] ^ self.crc_table[byte & 0xF]
             crc = (crc >> 4) & 0x0FFF ^ self.crc_table[crc & 0xF] ^ self.crc_table[(byte >> 4) & 0xF]
         return crc
+        
     def clean_ascii(self, text, length):
         text = unicodedata.normalize('NFKD', str(text)).encode('ASCII', 'ignore').decode('utf-8')
+        # Gwarancja null-terminatora na końcu stringa
         return "".join([c for c in text if c.isalnum() or c in " -_()"]).encode('utf-8')[:length-1].ljust(length, b'\x00')
+        
     def write_def(self, l_num, g_num, fields):
         self.data += bytearray([0x40 | (l_num & 0x0F), 0, 0]) + struct.pack('<H', g_num) + bytearray([len(fields)])
         for f in fields: self.data += bytearray(f)
+        
     def write_data(self, l_num, data_bytes):
         self.data += bytearray([0x00 | (l_num & 0x0F)]) + data_bytes
+        
     def generate(self, name, sport_enum, steps):
         self.data = bytearray()
         ts = int(time.time()) - 631065600 
         
-        # 1. File ID Message
+        # 1. File ID Message (mesg_num=0)
         self.write_def(0, 0, [(0, 1, 0x00), (1, 2, 0x84), (2, 2, 0x84), (3, 4, 0x8C), (4, 4, 0x86)])
-        # manufacturer=1 (Garmin), product=0, serial=ts, time_created=ts
         self.write_data(0, struct.pack('<B H H I I', 5, 1, 0, ts, ts))
-        
-        # 2. Workout Header
+
+        # 2. Workout Header (mesg_num=26)
         self.write_def(1, 26, [(8, 16, 0x07), (4, 2, 0x84), (5, 1, 0x00)])
         self.write_data(1, self.clean_ascii(name, 16) + struct.pack('<H B', len(steps), sport_enum))
         
-        # 3. Workout Steps
+        # 3. Workout Steps (mesg_num=27)
         self.write_def(2, 27, [(254, 2, 0x84), (0, 16, 0x07), (1, 1, 0x00), (2, 4, 0x86), (3, 1, 0x00), (4, 4, 0x86), (5, 4, 0x86), (6, 4, 0x86), (7, 1, 0x00)])
         for idx, s in enumerate(steps):
             sd = struct.pack('<H', idx) + self.clean_ascii(s['name'], 16) + struct.pack('<B I B I I I B', s['d_type'], s['d_val'], s['t_type'], s['t_val'], s['t_low'], s['t_high'], s['intens'])
             self.write_data(2, sd)
             
-        # Protokół 2.0 (0x20) - to to zmusza Fenixy 7 do akceptacji pliku
-        header = struct.pack('<BBHI4s', 14, 0x20, 2141, len(self.data), b'.FIT')
+        # Zapis z użyciem bezpiecznego Protokołu 1.0 (0x10), Profile=2141
+        header = struct.pack('<BBHI4s', 14, 0x10, 2141, len(self.data), b'.FIT')
         header += struct.pack('<H', self.compute_crc(header))
         ff = header + self.data
         return bytes(ff + struct.pack('<H', self.compute_crc(ff)))
 
 def create_binary_fit(workout_data, ftp=250):
     writer = FitWriter()
-    sport_enum = {"Bieganie": 1, "Rower": 2, "Pływanie": 5, "Siłownia": 3}.get(workout_data.get('dyscyplina', 'Bieganie'), 1)
+    # Mapowanie sportów na zgodne z Garmin FIT
+    sport_map = {"Bieganie": 1, "Rower": 2, "Pływanie": 5}
+    sport_enum = sport_map.get(workout_data.get('dyscyplina'), 0) # 0 to Generic
+    
     intens_map = {"Rozgrzewka": 2, "Interwał": 0, "Przerwa": 1, "Rozjazd": 3}
     name_map = {"Rozgrzewka": "Warmup", "Interwał": "Work", "Przerwa": "Rest", "Rozjazd": "Cooldown"}
     steps = []
@@ -394,37 +401,49 @@ def create_binary_fit(workout_data, ftp=250):
     for k in workout_data.get('kroki', []):
         d_type = 1 if k.get('is_distance') else 0
         d_val = int(k.get('dystans_km', 0) * 100000) if d_type == 1 else int(k.get('czas_total_sec', 0) * 1000)
-        d_val = max(d_val, 1000) # Zabezpieczenie przed zerowym czasem kroku
+        d_val = max(d_val, 1000) # Minimum 1 sekunda, żeby zegarek nie wybuchł
         
         mode = k.get('tryb', '')
         v_min = float(k.get('val_min', 0))
         v_max = float(k.get('val_max', 0))
         
-        # Domyślnie: Open (brak określonego celu, np. krok na RPE)
+        # SUPER WAŻNE: Open Targets (RPE) muszą mieć wartość 0xFFFFFFFF, a nie 0!
         t_type = 2 
-        t_val = 0  
-        c_low = 0
-        c_high = 0
+        t_val = 0xFFFFFFFF
+        c_low = 0xFFFFFFFF
+        c_high = 0xFFFFFFFF
         
         if v_min > 0 or v_max > 0:
-            if "Waty" in mode: 
-                t_type = 4 
-                c_low = int(min(v_min, v_max)) + 1000
-                c_high = int(max(v_min, v_max)) + 1000
-            elif "%" in mode: 
+            if "Waty" in mode or "%" in mode:
                 t_type = 4
-                c_low = int((min(v_min, v_max) / 100) * ftp) + 1000
-                c_high = int((max(v_min, v_max) / 100) * ftp) + 1000
-            elif "Tętno" in mode: 
+                t_val = 0 # 0 w Garminie to flaga "Użyj wartości własnych (Custom)"
+                if "Waty" in mode:
+                    c_low = int(min(v_min, v_max)) + 1000
+                    c_high = int(max(v_min, v_max)) + 1000
+                else:
+                    c_low = int((min(v_min, v_max) / 100.0) * ftp) + 1000
+                    c_high = int((max(v_min, v_max) / 100.0) * ftp) + 1000
+            elif "Tętno" in mode:
                 t_type = 1
+                t_val = 0
                 c_low = int(min(v_min, v_max)) + 100
                 c_high = int(max(v_min, v_max)) + 100
-            elif "Tempo" in mode: 
+            elif "Tempo" in mode:
                 t_type = 0
+                t_val = 0
                 c_low = min(int(1000 / (v_min * 60) * 1000), int(1000 / (v_max * 60) * 1000))
                 c_high = max(int(1000 / (v_min * 60) * 1000), int(1000 / (v_max * 60) * 1000))
-            
-        steps.append({'name': name_map.get(k.get('typ'), "Step"), 'd_type': d_type, 'd_val': d_val, 't_type': t_type, 't_val': t_val, 't_low': c_low, 't_high': c_high, 'intens': intens_map.get(k.get('typ'), 0)})
+                
+        steps.append({
+            'name': name_map.get(k.get('typ'), "Step"), 
+            'd_type': d_type, 
+            'd_val': d_val, 
+            't_type': t_type, 
+            't_val': t_val, 
+            't_low': c_low, 
+            't_high': c_high, 
+            'intens': intens_map.get(k.get('typ'), 0)
+        })
         
     return writer.generate(str(workout_data.get('tytul', 'Workout'))[:15], sport_enum, steps)
 
@@ -474,7 +493,6 @@ def parse_tcx_pro(uploaded_file, athlete_all_zones):
                 try: res["date"] = datetime.strptime(elem.text.strip()[:10], "%Y-%m-%d").date()
                 except: pass
                 
-        # Inteligentne pobieranie FTP i LTHR dla wykrytej dyscypliny
         disc_zones = athlete_all_zones.get(res["sport"], {})
         user_ftp = disc_zones.get("ftp", 250) if isinstance(disc_zones, dict) else 250
         user_lthr = disc_zones.get("lthr", 170) if isinstance(disc_zones, dict) else 170
@@ -1243,6 +1261,7 @@ elif menu == tr("Strefy"):
         st.rerun()
         
     c1, c2 = st.columns(2)
+    # Dodany klucz, żeby Streamlit nie wyrzucał błędów duplikatów przy zmianie zawodnika
     with c1: st.subheader(tr("Moc")); edited_pwr = st.data_editor(pd.DataFrame(user_data["zones_pwr"]), column_order=["Strefa", "Min", "Max"], hide_index=True, key=f"pwr_{sel_user}_{sel_disc}")
     with c2: st.subheader(tr("Tętno")); edited_hr = st.data_editor(pd.DataFrame(user_data["zones_hr"]), column_order=["Strefa", "Min", "Max"], hide_index=True, key=f"hr_{sel_user}_{sel_disc}")
     
