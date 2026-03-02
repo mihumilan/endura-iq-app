@@ -45,7 +45,7 @@ class MongoDBWrapper:
     def __contains__(self, key):
         return self.collection.count_documents({"_id": key}, limit=1) > 0
 
-# Inicjalizacja profesjonalnej bazy w chmurze!
+# Inicjalizacja bazy
 mongo_client = get_database_client()
 db = MongoDBWrapper(mongo_client)
 
@@ -99,7 +99,6 @@ TRANSLATIONS = {
         "Dodaj Krok": "Add Step", "Bieg": "Run", "Rower": "Bike", "Pływanie": "Swim", "Pojedynczy Krok": "Single Step", 
         "Seria Interwałów": "Interval Set", "Jednostka": "Unit", "Liczba powtórzeń": "Repetitions", "Praca": "Work", 
         "Odpoczynek": "Rest", "Dodaj Serię": "Add Set", "Wyczyść Kreator": "Clear Builder", "Czas/Dystans": "Time/Dist",
-        "Pobierz .FIT i wgraj go na zegarek do folderu GARMIN/NewFiles. Zegarek sam go przetworzy!": "Download .FIT and copy to GARMIN/NewFiles on your watch. It will process automatically!",
         "Dodaj zawody / cel": "Add Race / Goal", "Nazwa zawodów": "Race Name", "Data zawodów": "Race Date", 
         "Dodaj Start": "Add Race", "Dodano zawody!": "Race added!", "Cel:": "Goal:", "dni do startu": "days to go", 
         "dzisiaj!": "today!", "Czat z": "Chat with", "Napisz wiadomość...": "Type a message...",
@@ -255,7 +254,6 @@ def get_user_zones(zawodnik, dyscyplina="Rower"):
     if not disc_zones:
         zp, zh = generuj_domyslne_strefy(250, 170)
         disc_zones = {"ftp": 250, "lthr": 170, "zones_pwr": zp.to_dict('records'), "zones_hr": zh.to_dict('records')}
-        
         temp_db = db["strefy"]
         if zawodnik not in temp_db: temp_db[zawodnik] = {}
         temp_db[zawodnik][dyscyplina] = disc_zones
@@ -340,51 +338,35 @@ def get_next_race(zawodnik):
     return future_races[0]
 
 
-# --- NATIVE GARMIN FIT SDK ENGINE (KULOODPORNY DLA FENIX / EDGE) ---
+# --- NATIVE GENERATORS (FIT / ZWO / TCX) ---
 class FitWriter:
     def __init__(self):
         self.data = bytearray()
         self.crc_table = [0x0000, 0xCC01, 0xD801, 0x1400, 0xF001, 0x3C00, 0x2800, 0xE401, 0xA001, 0x6C00, 0x7800, 0xB401, 0x5000, 0x9C01, 0x8801, 0x4400]
-        
     def compute_crc(self, payload, crc=0):
         for byte in payload:
             crc = (crc >> 4) & 0x0FFF ^ self.crc_table[crc & 0xF] ^ self.crc_table[byte & 0xF]
             crc = (crc >> 4) & 0x0FFF ^ self.crc_table[crc & 0xF] ^ self.crc_table[(byte >> 4) & 0xF]
         return crc
-        
     def clean_ascii(self, text, length):
         text = unicodedata.normalize('NFKD', str(text)).encode('ASCII', 'ignore').decode('utf-8')
-        # Gwarancja null-terminatora na końcu stringa, czego wymaga Garmin
         return "".join([c for c in text if c.isalnum() or c in " -_()"]).encode('utf-8')[:length-1].ljust(length, b'\x00')
-        
     def write_def(self, l_num, g_num, fields):
         self.data += bytearray([0x40 | (l_num & 0x0F), 0, 0]) + struct.pack('<H', g_num) + bytearray([len(fields)])
         for f in fields: self.data += bytearray(f)
-        
     def write_data(self, l_num, data_bytes):
         self.data += bytearray([0x00 | (l_num & 0x0F)]) + data_bytes
-        
     def generate(self, name, sport_enum, steps):
         self.data = bytearray()
         ts = int(time.time()) - 631065600 
-        
-        # 1. File ID Message (mesg_num=0)
         self.write_def(0, 0, [(0, 1, 0x00), (1, 2, 0x84), (2, 2, 0x84), (3, 4, 0x8C), (4, 4, 0x86)])
-        # manufacturer=255 (Development 3rd party), product=65535, serial=ts, time_created=ts
-        # Zabezpiecza przed cichym usuwaniem pliku z zegarka ze względu na fałszywy podpis "Garmin"
         self.write_data(0, struct.pack('<B H H I I', 5, 255, 65535, ts, ts))
-
-        # 2. Workout Header (mesg_num=26) z dodanym wymaganym SubSport (11)
         self.write_def(1, 26, [(8, 16, 0x07), (4, 2, 0x84), (5, 1, 0x00), (11, 1, 0x00)])
         self.write_data(1, self.clean_ascii(name, 16) + struct.pack('<H B B', len(steps), sport_enum, 254))
-        
-        # 3. Workout Steps (mesg_num=27)
         self.write_def(2, 27, [(254, 2, 0x84), (0, 16, 0x07), (1, 1, 0x00), (2, 4, 0x86), (3, 1, 0x00), (4, 4, 0x86), (5, 4, 0x86), (6, 4, 0x86), (7, 1, 0x00)])
         for idx, s in enumerate(steps):
             sd = struct.pack('<H', idx) + self.clean_ascii(s['name'], 16) + struct.pack('<B I B I I I B', s['d_type'], s['d_val'], s['t_type'], s['t_val'], s['t_low'], s['t_high'], s['intens'])
             self.write_data(2, sd)
-            
-        # Zapis z użyciem bezpiecznego i uniwersalnego Protokołu 1.0 (0x10), Profile=2141
         header = struct.pack('<BBHI4s', 14, 0x10, 2141, len(self.data), b'.FIT')
         header += struct.pack('<H', self.compute_crc(header))
         ff = header + self.data
@@ -392,65 +374,97 @@ class FitWriter:
 
 def create_binary_fit(workout_data, ftp=250):
     writer = FitWriter()
-    
-    # Mapowanie sportów na standard Garmin (Generic to 0)
     sport_map = {"Bieganie": 1, "Rower": 2, "Pływanie": 5}
-    sport_enum = sport_map.get(workout_data.get('dyscyplina'), 0) 
-    
+    sport_enum = sport_map.get(workout_data.get('dyscyplina'), 0)
     intens_map = {"Rozgrzewka": 2, "Interwał": 0, "Przerwa": 1, "Rozjazd": 3}
     name_map = {"Rozgrzewka": "Warmup", "Interwał": "Work", "Przerwa": "Rest", "Rozjazd": "Cooldown"}
     steps = []
-    
     for k in workout_data.get('kroki', []):
         d_type = 1 if k.get('is_distance') else 0
-        d_val = int(k.get('dystans_km', 0) * 100000) if d_type == 1 else int(k.get('czas_total_sec', 0) * 1000)
-        d_val = max(d_val, 1000) # Gwarancja minimum 1 sekundy, co blokuje crash zegarka
+        d_val = max(int(k.get('dystans_km', 0) * 100000) if d_type == 1 else int(k.get('czas_total_sec', 0) * 1000), 1000)
+        mode = k.get('tryb', ''); v_min = float(k.get('val_min', 0)); v_max = float(k.get('val_max', 0))
+        t_type = 2; t_val = 0xFFFFFFFF; c_low = 0xFFFFFFFF; c_high = 0xFFFFFFFF
+        if v_min > 0 or v_max > 0:
+            if "Waty" in mode or "%" in mode:
+                t_type = 4; t_val = 0
+                c_low = int(min(v_min, v_max)) + 1000 if "Waty" in mode else int((min(v_min, v_max) / 100.0) * ftp) + 1000
+                c_high = int(max(v_min, v_max)) + 1000 if "Waty" in mode else int((max(v_min, v_max) / 100.0) * ftp) + 1000
+            elif "Tętno" in mode:
+                t_type = 1; t_val = 0
+                c_low = int(min(v_min, v_max)) + 100; c_high = int(max(v_min, v_max)) + 100
+            elif "Tempo" in mode:
+                t_type = 0; t_val = 0
+                c_low = min(int(1000 / (v_min * 60) * 1000), int(1000 / (v_max * 60) * 1000))
+                c_high = max(int(1000 / (v_min * 60) * 1000), int(1000 / (v_max * 60) * 1000))
+        steps.append({'name': name_map.get(k.get('typ'), "Step"), 'd_type': d_type, 'd_val': d_val, 't_type': t_type, 't_val': t_val, 't_low': c_low, 't_high': c_high, 'intens': intens_map.get(k.get('typ'), 0)})
+    return writer.generate(str(workout_data.get('tytul', 'Workout'))[:15], sport_enum, steps)
+
+# NOWOŚĆ: Generator niezawodnych plików TCX (Akceptowanych przez Nowe Garminy)
+def generate_tcx_workout_file(workout_data):
+    sport_str = workout_data.get('dyscyplina', 'Bieganie')
+    tcx_sport = "Biking" if sport_str == "Rower" else ("Running" if sport_str == "Bieganie" else "Other")
+    
+    xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    xml += '<TrainingCenterDatabase xsi:schemaLocation="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd" xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n'
+    xml += '  <Workouts>\n'
+    xml += f'    <Workout Sport="{tcx_sport}">\n'
+    
+    safe_name = "".join([c for c in str(workout_data.get('tytul', 'Workout')) if c.isalnum() or c in " -_"])[:15]
+    xml += f'      <Name>{safe_name}</Name>\n'
+    
+    steps = workout_data.get('kroki', [])
+    for i, k in enumerate(steps):
+        step_id = i + 1
+        name = "".join([c for c in str(k.get('typ', 'Step')) if c.isalnum() or c in " "])
+        xml += '      <Step xsi:type="Step_t">\n'
+        xml += f'        <StepId>{step_id}</StepId>\n'
+        xml += f'        <Name>{name}</Name>\n'
+        
+        if k.get('is_distance'):
+            dist_meters = int(k.get('dystans_km', 0) * 1000)
+            xml += f'        <Duration xsi:type="Distance_t">\n          <Meters>{dist_meters}</Meters>\n        </Duration>\n'
+        else:
+            sec = int(k.get('czas_total_sec', 0))
+            if sec == 0: sec = 60
+            xml += f'        <Duration xsi:type="Time_t">\n          <Seconds>{sec}</Seconds>\n        </Duration>\n'
+            
+        intensity = "Resting" if name == "Przerwa" else "Active"
+        xml += f'        <Intensity>{intensity}</Intensity>\n'
         
         mode = k.get('tryb', '')
         v_min = float(k.get('val_min', 0))
         v_max = float(k.get('val_max', 0))
         
-        # SUPER WAŻNE: Krok bez zdefiniowanego celu (np. RPE) musi być tzw. Open Target
-        t_type = 2 
-        t_val = 0
-        c_low = 0
-        c_high = 0
-        
         if v_min > 0 or v_max > 0:
-            if "Waty" in mode or "%" in mode:
-                t_type = 4 # Target mocy
-                t_val = 0  # 0 to polecenie "Użyj własnych (Custom) granic mocy"
-                if "Waty" in mode:
-                    c_low = int(min(v_min, v_max)) + 1000
-                    c_high = int(max(v_min, v_max)) + 1000
-                else:
-                    c_low = int((min(v_min, v_max) / 100.0) * ftp) + 1000
-                    c_high = int((max(v_min, v_max) / 100.0) * ftp) + 1000
-            elif "Tętno" in mode:
-                t_type = 1 # Target tętna
-                t_val = 0
-                c_low = int(min(v_min, v_max)) + 100
-                c_high = int(max(v_min, v_max)) + 100
+            if "Tętno" in mode:
+                xml += '        <Target xsi:type="HeartRate_t">\n'
+                xml += '          <HeartRateZone xsi:type="CustomHeartRateZone_t">\n'
+                xml += f'            <Low><Value>{int(min(v_min, v_max))}</Value></Low>\n'
+                xml += f'            <High><Value>{int(max(v_min, v_max))}</Value></High>\n'
+                xml += '          </HeartRateZone>\n'
+                xml += '        </Target>\n'
             elif "Tempo" in mode:
-                t_type = 0 # Target tempa
-                t_val = 0
-                c_low = min(int(1000 / (v_min * 60) * 1000), int(1000 / (v_max * 60) * 1000))
-                c_high = max(int(1000 / (v_min * 60) * 1000), int(1000 / (v_max * 60) * 1000))
-                
-        steps.append({
-            'name': name_map.get(k.get('typ'), "Step"), 
-            'd_type': d_type, 
-            'd_val': d_val, 
-            't_type': t_type, 
-            't_val': t_val, 
-            't_low': c_low, 
-            't_high': c_high, 
-            'intens': intens_map.get(k.get('typ'), 0)
-        })
+                low_speed = 1000 / (max(v_min, v_max) * 60)
+                high_speed = 1000 / (min(v_min, v_max) * 60)
+                xml += '        <Target xsi:type="Speed_t">\n'
+                xml += '          <SpeedZone xsi:type="CustomSpeedZone_t">\n'
+                xml += f'            <Low><Value>{low_speed:.3f}</Value></Low>\n'
+                xml += f'            <High><Value>{high_speed:.3f}</Value></High>\n'
+                xml += '          </SpeedZone>\n'
+                xml += '        </Target>\n'
+            else:
+                # W formacie XML TCX cel mocy nie był ustandaryzowany, wpisujemy Open
+                xml += '        <Target xsi:type="None_t"/>\n'
+        else:
+            xml += '        <Target xsi:type="None_t"/>\n'
+            
+        xml += '      </Step>\n'
         
-    return writer.generate(str(workout_data.get('tytul', 'Workout'))[:15], sport_enum, steps)
+    xml += '    </Workout>\n'
+    xml += '  </Workouts>\n'
+    xml += '</TrainingCenterDatabase>'
+    return xml.encode('utf-8')
 
-# --- ZWO GENERATOR ---
 def generate_zwo_file(workout_data):
     xml = "<workout_file>\n<author>TriCoach Pro</author>\n"
     xml += f"<name>{workout_data['tytul']}</name>\n<description>{workout_data.get('komentarz','')}</description>\n<sportType>bike</sportType>\n<workout>\n"
@@ -644,11 +658,15 @@ def render_planned_workout_view(t, user_ftp=250):
         st.plotly_chart(fig, use_container_width=True)
         with st.expander(tr("Zobacz Rozpiskę")): st.table(pd.DataFrame(steps_data))
 
-        c1_dl, c2_dl = st.columns(2)
+        # ZMIANA: Dodano przycisk dla pewnego formatu TCX
+        c1_dl, c2_dl, c3_dl = st.columns(3)
         safe_fn = "".join([c for c in unicodedata.normalize('NFKD', str(t['tytul'])).encode('ASCII', 'ignore').decode('utf-8') if c.isalnum() or c in " -_"]).strip() or "Workout"
-        c1_dl.download_button(tr("Pobierz plik .ZWO (Zwift)"), data=generate_zwo_file(t), file_name=f"{safe_fn}.zwo", mime="text/xml")
-        c2_dl.markdown(f"<span style='font-size:0.85em; color:#8BA1B8;'>*{tr('Pobierz .FIT i wgraj go na zegarek do folderu GARMIN/NewFiles. Zegarek sam go przetworzy!')}*</span>", unsafe_allow_html=True)
-        c2_dl.download_button(tr("Pobierz plik .FIT (Garmin)"), data=create_binary_fit(t, user_ftp), file_name=f"{safe_fn}.fit", mime="application/octet-stream")
+        
+        c1_dl.download_button("Pobierz .ZWO (Zwift)", data=generate_zwo_file(t), file_name=f"{safe_fn}.zwo", mime="text/xml")
+        c2_dl.download_button("Pobierz .TCX (Nowe Garminy) ✅", data=generate_tcx_workout_file(t), file_name=f"{safe_fn}.tcx", mime="application/tcx+xml")
+        c3_dl.download_button("Pobierz .FIT (Starsze modele)", data=create_binary_fit(t, user_ftp), file_name=f"{safe_fn}.fit", mime="application/octet-stream")
+        
+        st.markdown(f"<div style='text-align:center; margin-top:15px;'><span style='font-size:0.9em; color:#00E5FF;'>💡 <b>Instrukcja:</b> Podłącz zegarek kablem. Wrzuć pobrany plik <b>.TCX</b> (lub .FIT) do folderu <code>GARMIN/NewFiles</code>. Odłącz zegarek - system sam załaduje Twój trening!</span></div>", unsafe_allow_html=True)
     else: st.warning(tr("Tylko opis tekstowy."))
 
 def render_analysis_dashboard(t, user_settings):
@@ -1264,7 +1282,6 @@ elif menu == tr("Strefy"):
         st.rerun()
         
     c1, c2 = st.columns(2)
-    # Dodany klucz, żeby Streamlit nie wyrzucał błędów duplikatów przy zmianie zawodnika
     with c1: st.subheader(tr("Moc")); edited_pwr = st.data_editor(pd.DataFrame(user_data["zones_pwr"]), column_order=["Strefa", "Min", "Max"], hide_index=True, key=f"pwr_{sel_user}_{sel_disc}")
     with c2: st.subheader(tr("Tętno")); edited_hr = st.data_editor(pd.DataFrame(user_data["zones_hr"]), column_order=["Strefa", "Min", "Max"], hide_index=True, key=f"hr_{sel_user}_{sel_disc}")
     
