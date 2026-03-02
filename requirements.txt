@@ -7,4 +7,4 @@ streamlit-calendar
 pymongo
 dnspython
 certifi
-python-garminconnect
+garminconnect
