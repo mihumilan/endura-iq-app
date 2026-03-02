@@ -339,7 +339,7 @@ def get_next_race(zawodnik):
     future_races.sort(key=lambda x: x[1])
     return future_races[0]
 
-# --- NOWOŚĆ: INTEGRACJA CLOUD GARMIN CONNECT ---
+# --- NOWOŚĆ: BEZPOŚREDNIE API GARMIN CONNECT ---
 def send_workout_to_garmin_connect(email, password, workout_data):
     import garminconnect
     client = garminconnect.Garmin(email, password)
@@ -383,15 +383,14 @@ def send_workout_to_garmin_connect(email, password, workout_data):
         "workoutSegments": [{"segmentOrder": 1, "sportType": {"sportTypeId": sport_id, "sportTypeKey": sport_key}, "workoutSteps": steps}]
     }
     
-    # Wywołanie wewnętrznej metody biblioteki wysyłającej trening do chmury Garmina
-    res = client.garth.client.post("connectapi", "/workout-service/workout", json=payload)
+    # POPRAWIONY KOD NA ZGODNY Z NAJNOWSZĄ BIBLIOTEKĄ GARMINCONNECT
+    res = client.garth.post("connectapi", "/workout-service/workout", json=payload)
     
     if res and type(res) == dict and res.get("workoutId"):
         w_id = res["workoutId"]
         w_date = str(workout_data.get('data', date.today()))
-        # Dodanie do kalendarza na zaplanowany dzień
-        client.garth.client.post("connectapi", f"/workout-service/schedule/{w_id}", json={"date": w_date})
-        return True, "Zrobione! Trening jest już w kalendarzu Twojego konta Garmin Connect."
+        client.garth.post("connectapi", f"/workout-service/schedule/{w_id}", json={"date": w_date})
+        return True, "Zrobione! Trening jest już w kalendarzu Twojego konta Garmin Connect. Odpal aplikację Garmina w telefonie, żeby zsynchronizować zegarek!"
     else:
         return False, "Nie udało się utworzyć treningu po stronie serwerów Garmina."
 
@@ -782,6 +781,7 @@ if menu == tr("Dodaj aktywność"):
             is_file_mode = False
             if up:
                 is_file_mode = True
+                # Przekazujemy wszystkie strefy zawodnika, żeby parser sam wybrał dyscyplinę
                 parsed = parse_tcx_pro(up, db["strefy"].get(ja, {}))
                 if parsed['time'] > 0: st.session_state.form_data = parsed; st.success(f"✅ {tr('Przetworzono:')} {parsed['dist']} km")
 
@@ -1041,6 +1041,7 @@ elif menu == tr("Kalendarz"):
                         render_analysis_dashboard(t_row.to_dict(), get_user_zones(target, t_row['dyscyplina']))
         else:
             st.info(tr("Brak wykonanych aktywności."))
+
 
 # --- 3. DASHBOARD ---
 elif menu == tr("Dashboard"):
