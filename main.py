@@ -119,8 +119,7 @@ TRANSLATIONS = {
         "Tworzenie Planu (Makro/Mikrocykl)": "Plan Creation (Macro/Microcycle)", "Dzień (np. 1 = start, 2 = kolejny dzień)": "Day (e.g., 1 = start, 2 = next day)",
         "Dodaj Trening do Planu": "Add Workout to Plan", "Zapisz Plan": "Save Plan", "Nazwa Planu (np. 4 tygodnie Baza)": "Plan Name (e.g., 4-week Base)",
         "Najpierw stwórz pojedyncze treningi (szablony) w zakładce Kreator.": "First, create individual workouts (templates) in the Builder tab.",
-        "Komentarze do treningu": "Workout Comments", "Dodaj komentarz...": "Add a comment...", "Wyślij": "Send", "Interwały": "Intervals",
-        "Mapa trasy GPS": "GPS Route Map", "Lista aktywności": "Activity List", "Czas w strefach": "Time in Zones"
+        "Ocena Treningu (RPE i Samopoczucie)": "Workout Rating (RPE & Feeling)"
     }
 }
 
@@ -168,14 +167,11 @@ KOLORY_SPORT = {"Pływanie": "#2979FF", "Rower": "#FF1744", "Bieganie": "#00E676
 KOLORY_BLOKOW = {"Rozgrzewka": "#558B2F", "Interwał": "#D32F2F", "Przerwa": "#1976D2", "Rozjazd": "#616161"}
 ZONE_COLORS = ["#9E9E9E", "#2196F3", "#4CAF50", "#FFC107", "#FF5722", "#D50000", "#880E4F"]
 
-# Inicjalizacja tabel z użytkownikami w MongoDB
-if "users_db" not in db: 
-    # Tworzymy domyślnego admina, jeśli baza jest pusta
-    db["users_db"] = {"admin": {"password": "trener123", "role": "coach"}}
-if "zawodnicy_list" not in db:
+if "users_db" not in db or not isinstance(db.get("users_db"), dict): 
+    db["users_db"] = {"admin": {"password": "trener123", "role": "coach", "fullname": "Administrator (Trener)"}}
+if "zawodnicy_list" not in db or not isinstance(db.get("zawodnicy_list"), list):
     db["zawodnicy_list"] = []
 
-# Pobieramy dynamiczną listę z chmury
 ZAWODNICY = db.get("zawodnicy_list", [])
 
 for key in ["treningi", "strefy", "wyscigi", "biblioteka", "fizjologia", "power_profile", "run_records", "waga", "chat", "plany", "garmin_creds", "zawodnicy_info"]:
@@ -190,9 +186,17 @@ if "session_treningi" not in st.session_state: st.session_state.session_treningi
 # ==========================================
 def check_login(u, p):
     users = db.get("users_db", {})
-    if u in users and users[u]["password"] == p:
-        return True, users[u]["role"]
+    if u in users and users[u].get("password") == p:
+        return True, users[u].get("role", "athlete")
     return False, None
+
+def get_display_name(login):
+    users = db.get("users_db", {})
+    if not isinstance(users, dict): return login
+    fullname = users.get(login, {}).get("fullname", login)
+    if fullname and fullname != login:
+        return f"{fullname} ({login})"
+    return login
 
 def format_czas(m):
     if m is None or m == 0: return "0h 00m"
@@ -222,15 +226,21 @@ def calculate_compliance(df):
 
 def calculate_time_in_zones_custom(stream, zone_defs, total_time_mins):
     if not stream or not zone_defs: return []
-    zs = [{"label": z["Strefa"], "max": float(z["Max"]), "count": 0} for z in zone_defs]
-    valid = [x for x in stream if x is not None]
+    zs = [{"label": z["Strefa"], "max": float(z.get("Max", 0)), "count": 0} for z in zone_defs]
+    valid = [float(x) for x in stream if x is not None]
     if not valid: return []
+    
     for val in valid:
         for i, z in enumerate(zs):
-            if val <= z["max"]: z["count"] += 1; break
-            elif i == len(zs)-1: z["count"] += 1
+            if val <= z["max"]:
+                z["count"] += 1
+                break
+            elif i == len(zs)-1:
+                z["count"] += 1
+                
     t = len(valid)
-    return [{"label": z["label"], "mins": round((z["count"]/t) * total_time_mins, 1), "pct": (z["count"]/t)*100} for z in zs] if t > 0 else []
+    ttm = float(total_time_mins) if total_time_mins and float(total_time_mins) > 0 else (t / 60.0)
+    return [{"label": z["label"], "mins": round((z["count"]/t) * ttm, 1), "pct": (z["count"]/t)*100} for z in zs] if t > 0 else []
 
 def pace_str_to_float(pace_str):
     try: p=pace_str.split(':'); return int(p[0])+int(p[1])/60.0
@@ -322,7 +332,7 @@ def get_df(zawodnik=None):
             d.setdefault('dyscyplina','Inne'); d.setdefault('dystans',0.0); d.setdefault('czas',0); 
             d.setdefault('tss',0); d.setdefault('wykonany',False); d.setdefault('avg_power', 0)
             d.setdefault('streams', None); d.setdefault('laps', [])
-            d.setdefault('rpe', 0); d.setdefault('feeling', '😐')
+            d.setdefault('rpe', 5); d.setdefault('feeling', '🙂')
             d.setdefault('kroki', []); d.setdefault('peak_powers', {}); d.setdefault('best_times', {})
             d.setdefault('komentarze_treningu', [])
             clean.append(d)
@@ -489,7 +499,7 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
             "tss": tss_val,
             "avg_power": parsed.get('avg_power', 0),
             "wykonany": True,
-            "komentarz": "Zsynchronizowano automatycznie z chmury Garmin Connect",
+            "komentarz": "Trening pobrany z Garmin Connect.",
             "rpe": 5, 
             "feeling": "🙂", 
             "streams": parsed.get('streams'),
@@ -510,7 +520,7 @@ class PDFReport(FPDF):
 
 def create_weekly_pdf(zawodnik, week_data, week_num, year, coach_note):
     pdf = PDFReport(); pdf.add_page(); pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_font('Arial', 'B', 12); pdf.set_text_color(0); pdf.cell(0, 10, f"Athlete: {zawodnik} | Week {week_num} / {year}", 0, 1, 'L'); pdf.ln(5)
+    pdf.set_font('Arial', 'B', 12); pdf.set_text_color(0); pdf.cell(0, 10, f"Athlete: {get_display_name(zawodnik)} | Week {week_num} / {year}", 0, 1, 'L'); pdf.ln(5)
     pdf.set_fill_color(240, 240, 240); pdf.set_font('Arial', 'B', 10)
     pdf.cell(60, 10, f"Time: {format_czas(week_data['czas'].sum())}", 1, 0, 'C', 1); pdf.cell(60, 10, f"Dist: {week_data['dystans'].sum()} km", 1, 0, 'C', 1); pdf.cell(60, 10, f"TSS: {int(week_data['tss'].sum())}", 1, 1, 'C', 1); pdf.ln(10)
     pdf.set_font('Arial', 'B', 11); pdf.cell(0, 10, "Log:", 0, 1, 'L'); pdf.set_font('Arial', '', 9); pdf.set_fill_color(0, 229, 255); pdf.set_text_color(255)
@@ -724,7 +734,31 @@ def render_analysis_dashboard(t, user_settings):
     k3.markdown(f"<div class='metric-card'><div class='metric-val'>{t.get('tss')}</div><div class='metric-label'>TSS</div></div>", unsafe_allow_html=True)
     np_val = calculate_normalized_power(t.get('streams', {}).get('watts', [])) if t.get('streams') and any(t['streams'].get('watts',[])) else 0
     k4.markdown(f"<div class='metric-card'><div class='metric-val'>{np_val} W</div><div class='metric-label'>{tr('NP (Moc)')}</div></div>", unsafe_allow_html=True)
-    c7,c8=st.columns(2); c7.write(f"**{tr('RPE:')}** {t.get('rpe','-')}/10"); c8.write(f"**{tr('Samopoczucie:')}** {t.get('feeling','-')}")
+    
+    st.markdown("---")
+    st.markdown(f"### 📋 {tr('Ocena Treningu (RPE i Samopoczucie)')}")
+    with st.form(key=f"edit_rpe_{t.get('data')}_{t.get('tytul')}"):
+        c_rpe, c_feel = st.columns(2)
+        new_rpe = c_rpe.slider("RPE (Odczuwany wysiłek)", 1, 10, int(t.get('rpe', 5)))
+        new_feel = c_feel.select_slider(tr("Samopoczucie"), ["😫","😕","😐","🙂","🤩"], value=t.get('feeling', '🙂'))
+        new_comm = st.text_area(tr("Notatka dla Trenera"), value=t.get('komentarz', ''))
+        
+        if st.form_submit_button("Zapisz Ocenę"):
+            temp_db = list(db["treningi"])
+            for w in temp_db:
+                if w.get('zawodnik') == t.get('zawodnik') and str(w.get('data')) == str(t.get('data')) and w.get('tytul') == t.get('tytul'):
+                    w['rpe'] = new_rpe
+                    w['feeling'] = new_feel
+                    w['komentarz'] = new_comm
+            db["treningi"] = temp_db
+            
+            for w in st.session_state.session_treningi:
+                if w.get('zawodnik') == t.get('zawodnik') and str(w.get('data')) == str(t.get('data')) and w.get('tytul') == t.get('tytul'):
+                    w['rpe'] = new_rpe
+                    w['feeling'] = new_feel
+                    w['komentarz'] = new_comm
+            st.rerun()
+
     st.markdown("---")
 
     streams = t.get('streams')
@@ -771,7 +805,9 @@ def render_analysis_dashboard(t, user_settings):
                 if z_pwr:
                     df_zp = pd.DataFrame(z_pwr)
                     fig_zp = px.bar(df_zp, x='mins', y='label', orientation='h', title=tr("Moc"), text=df_zp['mins'].apply(lambda x: f"{x} min"), color='label', color_discrete_sequence=ZONE_COLORS)
-                    fig_zp.update_layout(template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                    max_x_pwr = max(df_zp['mins'].max() * 1.1, 1)
+                    fig_zp.update_layout(yaxis={'categoryorder':'category descending'}, template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                    fig_zp.update_xaxes(range=[0, max_x_pwr])
                     cz1.plotly_chart(fig_zp, use_container_width=True)
                     
             if any(streams.get('hr', [])) and user_settings.get("zones_hr"):
@@ -779,26 +815,29 @@ def render_analysis_dashboard(t, user_settings):
                 if z_hr:
                     df_zh = pd.DataFrame(z_hr)
                     fig_zh = px.bar(df_zh, x='mins', y='label', orientation='h', title=tr("Tętno"), text=df_zh['mins'].apply(lambda x: f"{x} min"), color='label', color_discrete_sequence=ZONE_COLORS)
-                    fig_zh.update_layout(template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                    max_x_hr = max(df_zh['mins'].max() * 1.1, 1)
+                    fig_zh.update_layout(yaxis={'categoryorder':'category descending'}, template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                    fig_zh.update_xaxes(range=[0, max_x_hr])
                     cz2.plotly_chart(fig_zh, use_container_width=True)
 
     st.markdown("---")
-    st.markdown(f"### 💬 {tr('Komentarze do treningu')}")
+    st.markdown(f"### 💬 {tr('Komentarze do rozmowy')}")
     komentarze = t.get('komentarze_treningu', [])
     for c in komentarze:
         is_me = (c['autor'] == st.session_state.username)
         bg_col = "rgba(0, 229, 255, 0.1)" if is_me else "rgba(255, 255, 255, 0.05)"
         align = "left"
+        autor_disp = get_display_name(c['autor'])
         st.markdown(f"""
         <div style='background: {bg_col}; padding: 12px; border-radius: 8px; margin-bottom: 8px; text-align: {align}; border-left: {'3px solid #00E5FF' if is_me else '3px solid #FFD700'};'>
-            <small style='color: #8BA1B8;'><b>{c['autor']}</b> • {c['data']}</small><br>
+            <small style='color: #8BA1B8;'><b>{autor_disp}</b> • {c['data']}</small><br>
             <span style='color: #E2E8F0; font-size: 0.95em;'>{c['tresc']}</span>
         </div>
         """, unsafe_allow_html=True)
 
     safe_title = "".join([c for c in str(t.get('tytul','')) if c.isalnum()]).strip()
-    with st.form(key=f"comment_form_{t.get('zawodnik')}_{t.get('data')}_{safe_title}"):
-        new_comment = st.text_input(tr("Dodaj komentarz..."))
+    with st.form(key=f"comment_chat_form_{t.get('zawodnik')}_{t.get('data')}_{safe_title}"):
+        new_comment = st.text_input(tr("Dodaj szybką wiadomość..."))
         if st.form_submit_button(tr("Wyślij")):
             if new_comment:
                 add_comment_to_workout(t['zawodnik'], t['data'], t['tytul'], t['dyscyplina'], st.session_state.username, new_comment)
@@ -806,8 +845,9 @@ def render_analysis_dashboard(t, user_settings):
 
 # --- KREATOR ANKIETY ONBOARDINGOWEJ ---
 def render_onboarding_view(zawodnik):
+    fullname = db.get("users_db", {}).get(zawodnik, {}).get("fullname", zawodnik)
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown(f"<h1 style='text-align:center; color:#00E5FF;'>Witaj w Endura IQ, {zawodnik.split(' ')[0]}! 🚀</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='text-align:center; color:#00E5FF;'>Witaj w Endura IQ, {fullname.split(' ')[0]}! 🚀</h1>", unsafe_allow_html=True)
     st.markdown("<h4 style='text-align:center; color:#8BA1B8; margin-bottom: 30px;'>Zanim ułożymy Twój pierwszy plan, musimy się lepiej poznać. Przejdź przez krótki formularz, a my zajmiemy się resztą.</h4>", unsafe_allow_html=True)
     
     with st.form("onboarding_wizard"):
@@ -930,24 +970,23 @@ if not st.session_state.logged_in:
                     
         with tab_reg:
             st.markdown("<span style='color:#8BA1B8; font-size: 0.9em;'>Dołącz do Endura IQ i rozpocznij swoją profesjonalną drogę.</span>", unsafe_allow_html=True)
-            reg_name = st.text_input("Imię i Nazwisko (to będzie Twój login)")
+            reg_login = st.text_input("Twój Login / Nick (musi być unikalny)")
+            reg_name = st.text_input("Imię i Nazwisko")
             reg_pass = st.text_input("Hasło", type="password")
             
             if st.button("Utwórz konto 🚀"):
                 users = db.get("users_db", {})
-                if reg_name in users:
-                    st.error("Użytkownik o takim imieniu i nazwisku już istnieje. Przejdź do logowania.")
-                elif len(reg_name) < 3 or len(reg_pass) < 4:
-                    st.error("Imię i nazwisko oraz hasło są za krótkie!")
+                if reg_login in users:
+                    st.error("Użytkownik o takim loginie już istnieje. Wybierz inny!")
+                elif len(reg_login) < 3 or len(reg_name) < 3 or len(reg_pass) < 4:
+                    st.error("Wypełnij poprawnie wszystkie pola (Login i Imię min. 3 znaki, Hasło min. 4).")
                 else:
-                    # Zapis nowego użytkownika do bazy logowania
-                    users[reg_name] = {"password": reg_pass, "role": "athlete"}
+                    users[reg_login] = {"password": reg_pass, "role": "athlete", "fullname": reg_name}
                     db["users_db"] = users
                     
-                    # Dodanie go do globalnej listy zawodników, żeby trener go widział
                     zaw_list = db.get("zawodnicy_list", [])
-                    if reg_name not in zaw_list:
-                        zaw_list.append(reg_name)
+                    if reg_login not in zaw_list:
+                        zaw_list.append(reg_login)
                         db["zawodnicy_list"] = zaw_list
                         
                     st.success("Konto utworzone! Możesz się teraz zalogować w zakładce obok.")
@@ -960,14 +999,14 @@ if not st.session_state.logged_in:
 # ==========================================
 ja = st.session_state.username
 
-# Blokada aplikacji dla zawodnika, który nie wypełnił ankiety
 if st.session_state.role == "athlete":
     athlete_info = db["zawodnicy_info"].get(ja, {})
     if not athlete_info.get("onboarded", False):
         render_onboarding_view(ja)
         st.stop()
 
-st.sidebar.markdown(f"<h3 style='color: #00E5FF; text-align: center; margin-bottom: 20px;'>{ja.upper()}</h3>", unsafe_allow_html=True)
+ja_disp = get_display_name(ja)
+st.sidebar.markdown(f"<h3 style='color: #00E5FF; text-align: center; margin-bottom: 20px;'>{ja_disp.split(' ')[0].upper()}</h3>", unsafe_allow_html=True)
 lang_sel = st.sidebar.radio("Language / Język", ["PL", "EN"], horizontal=True, index=0 if st.session_state.lang == 'PL' else 1)
 if lang_sel != st.session_state.lang: st.session_state.lang = lang_sel; st.rerun()
 
@@ -978,7 +1017,7 @@ if st.sidebar.button(tr("Wyloguj")): st.session_state.logged_in=False; st.rerun(
 
 # --- 1. DODAJ AKTYWNOŚĆ (ZAWODNIK) ---
 if menu == tr("Dodaj aktywność"):
-    st.title(f"{tr('Cześć')} {ja.split(' ')[0]}!")
+    st.title(f"{tr('Cześć')} {ja_disp.split(' ')[0]}!")
     next_race = get_next_race(ja)
     if next_race:
         r_data, d_left = next_race
@@ -1094,15 +1133,18 @@ if menu == tr("Dodaj aktywność"):
 elif menu == tr("Wiadomości"):
     st.title(f"💬 {tr('Wiadomości')}")
     chat_partner = "admin"
-    if st.session_state.role == "coach": chat_partner = st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY)
-    st.markdown(f"#### {tr('Czat z')} {chat_partner}")
+    if st.session_state.role == "coach": chat_partner = st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY, format_func=get_display_name)
+    
+    partner_disp = get_display_name(chat_partner)
+    st.markdown(f"#### {tr('Czat z')} {partner_disp}")
     st.markdown("---")
     msgs = db.get("chat", [])
     for m in msgs:
         if (m['od'] == ja and m['do'] == chat_partner) or (m['od'] == chat_partner and m['do'] == ja):
             is_me = (m['od'] == ja)
             with st.chat_message("user" if is_me else "assistant", avatar="👤" if is_me else ("👨‍🏫" if m['od'] == "admin" else "🏃")):
-                st.caption(f"{m['data']}")
+                autor_disp = get_display_name(m['od'])
+                st.caption(f"{autor_disp} • {m['data']}")
                 st.write(m['tresc'])
     prompt = st.chat_input(tr("Napisz wiadomość..."))
     if prompt:
@@ -1112,7 +1154,7 @@ elif menu == tr("Wiadomości"):
 # --- 1.8 STATYSTYKI ---
 elif menu == tr("Statystyki"):
     st.title(f"📊 {tr('Podsumowanie aktywności')}")
-    target = ja if st.session_state.role != "coach" else st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY)
+    target = ja if st.session_state.role != "coach" else st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY, format_func=get_display_name)
     df = get_df(target)
     df = df[df['wykonany'] == True]
     if not df.empty:
@@ -1155,7 +1197,7 @@ elif menu == tr("Statystyki"):
 # --- 2. KALENDARZ ---
 elif menu == tr("Kalendarz"):
     st.title(tr("Kalendarz"))
-    target = ja if st.session_state.role != "coach" else st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY)
+    target = ja if st.session_state.role != "coach" else st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY, format_func=get_display_name)
 
     tab_kalendarz, tab_lista = st.tabs([f"📅 {tr('Kalendarz')}", f"📋 {tr('Lista aktywności')}"])
 
@@ -1293,14 +1335,15 @@ elif menu == tr("Kalendarz"):
         else:
             st.info(tr("Brak wykonanych aktywności."))
 
-
 # --- 3. DASHBOARD ---
 elif menu == tr("Dashboard"):
     st.title(tr("Centrum Zarządzania")); cols = st.columns(3)
-    for idx, z in enumerate(ZAWODNICY): cols[idx%3].metric(f"{z}", f"{calculate_compliance(get_df(z))}%", help=tr("Dyscyplina (Wykonanie Planu)"))
+    for idx, z in enumerate(ZAWODNICY): 
+        z_disp = get_display_name(z)
+        cols[idx%3].metric(f"{z_disp}", f"{calculate_compliance(get_df(z))}%", help=tr("Dyscyplina (Wykonanie Planu)"))
     st.markdown("---")
 
-    target_pmc = st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY, key="pmc_sel")
+    target_pmc = st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY, key="pmc_sel", format_func=get_display_name)
     next_race = get_next_race(target_pmc)
     if next_race:
         r_data, d_left = next_race
@@ -1328,9 +1371,8 @@ elif menu == tr("Dashboard"):
 # --- 4. DANE ZAWODNIKA / FIZJOLOGIA ---
 elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
     st.title(tr("Dane Zawodnika i Fizjologia"))
-    sel_user = st.selectbox(tr("Zawodnik:"), ZAWODNICY) if st.session_state.role == "coach" else ja
+    sel_user = st.selectbox(tr("Zawodnik:"), ZAWODNICY, format_func=get_display_name) if st.session_state.role == "coach" else ja
     
-    # DODANO ZAKŁADKĘ Z ANKIETĄ DLA TRENERA
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([tr("Profil Mocy (CP)"), tr("Rekordy Biegowe"), tr("Badania & Trendy"), tr("Waga"), "Integracje 🔗", "📝 Ankieta Profilowa"])
 
     with tab1:
@@ -1455,7 +1497,8 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
                 st.success("Zapisano dane. Od teraz możesz wysyłać treningi prosto z kalendarza!")
                 
     with tab6:
-        st.markdown(f"### 📋 Profil Startowy (Ankieta): {sel_user}")
+        sel_user_disp = get_display_name(sel_user)
+        st.markdown(f"### 📋 Profil Startowy (Ankieta): {sel_user_disp}")
         info = db["zawodnicy_info"].get(sel_user, {})
         
         if info and info.get("onboarded"):
@@ -1509,7 +1552,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
 elif menu == tr("Raporty"):
     st.title(tr("Centrum Raportowania")); 
     if st.session_state.role != "coach": st.warning(tr("Dla trenera.")); st.stop()
-    sel_user = st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY)
+    sel_user = st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY, format_func=get_display_name)
     c1, c2 = st.columns(2); sel_year = c1.number_input(tr("Rok"), 2023, 2030, date.today().year); sel_week = c2.number_input(tr("Tydzień"), 1, 52, date.today().isocalendar().week - 1)
     coach_note = st.text_area(tr("Komentarz Trenera"))
     if st.button(tr("Generuj PDF")):
@@ -1522,7 +1565,7 @@ elif menu == tr("Raporty"):
 # --- 6. STREFY ---
 elif menu == tr("Strefy"):
     st.title(tr("Strefy"))
-    sel_user = st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY) if st.session_state.role=="coach" else ja
+    sel_user = st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY, format_func=get_display_name) if st.session_state.role=="coach" else ja
     
     sel_disc = st.selectbox(tr("Dyscyplina"), ["Rower", "Bieganie", "Pływanie", "Siłownia", "Inne"], format_func=tr)
     user_data = get_user_zones(sel_user, sel_disc)
@@ -1659,7 +1702,7 @@ elif menu == tr("Plany"):
         else:
             with st.form("assign_plan_form"):
                 c1, c2 = st.columns(2)
-                p_athlete = c1.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY)
+                p_athlete = c1.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY, format_func=get_display_name)
                 p_plan_name = c2.selectbox(tr("Wybierz Plan"), [p['nazwa'] for p in db.get("plany", [])])
                 p_start_date = st.date_input(tr("Data startu"), date.today())
                 if st.form_submit_button(tr("Przypisz Plan")):
