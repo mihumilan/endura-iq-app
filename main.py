@@ -224,10 +224,20 @@ def calculate_compliance(df):
     t = past[~past['wykonany']]['czas'].sum() + past[past['wykonany']]['czas'].sum()
     return int((past[past['wykonany']]['czas'].sum() / t) * 100) if t > 0 else 0
 
+# --- NAPRAWIONA FUNKCJA OBLICZANIA STREF ---
 def calculate_time_in_zones_custom(stream, zone_defs, total_time_mins):
     if not stream or not zone_defs: return []
-    zs = [{"label": z["Strefa"], "max": float(z.get("Max", 0)), "count": 0} for z in zone_defs]
-    valid = [float(x) for x in stream if x is not None]
+    zs = [{"label": str(z.get("Strefa", "")), "max": float(z.get("Max", 0)), "count": 0} for z in zone_defs]
+    
+    valid = []
+    for x in stream:
+        if x is not None:
+            try:
+                v = float(x)
+                if not np.isnan(v):
+                    valid.append(v)
+            except: pass
+            
     if not valid: return []
     
     for val in valid:
@@ -239,8 +249,13 @@ def calculate_time_in_zones_custom(stream, zone_defs, total_time_mins):
                 z["count"] += 1
                 
     t = len(valid)
-    ttm = float(total_time_mins) if total_time_mins and float(total_time_mins) > 0 else (t / 60.0)
-    return [{"label": z["label"], "mins": round((z["count"]/t) * ttm, 1), "pct": (z["count"]/t)*100} for z in zs] if t > 0 else []
+    try:
+        ttm = float(total_time_mins)
+        if ttm <= 0: ttm = t / 60.0
+    except:
+        ttm = t / 60.0
+        
+    return [{"label": z["label"], "mins": round((z["count"]/t) * ttm, 1), "pct": (z["count"]/t)*100} for z in zs]
 
 def pace_str_to_float(pace_str):
     try: p=pace_str.split(':'); return int(p[0])+int(p[1])/60.0
@@ -365,7 +380,6 @@ def get_next_race(zawodnik):
     future_races.sort(key=lambda x: x[1])
     return future_races[0]
 
-# --- API GARMIN CONNECT (WYSYŁANIE) ---
 def send_workout_to_garmin_connect(email, password, workout_data):
     import garminconnect
     client = garminconnect.Garmin(email, password)
@@ -418,7 +432,6 @@ def send_workout_to_garmin_connect(email, password, workout_data):
     else:
         return False, f"Błąd po stronie serwerów Garmin: {str(res_dict)[:150]}"
 
-# --- KULOODPORNE POBIERANIE HISTORII Z GARMIN CONNECT ---
 def sync_from_garmin(zawodnik, email, password, limit=10):
     import garminconnect
     
@@ -499,7 +512,7 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
             "tss": tss_val,
             "avg_power": parsed.get('avg_power', 0),
             "wykonany": True,
-            "komentarz": "Trening pobrany z Garmin Connect.",
+            "komentarz": "",
             "rpe": 5, 
             "feeling": "🙂", 
             "streams": parsed.get('streams'),
@@ -513,6 +526,15 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
         added_count += 1
         
     return added_count
+
+def is_valid_stream(s):
+    if not s: return False
+    for x in s:
+        if x is not None:
+            try:
+                if float(x) > 0: return True
+            except: pass
+    return False
 
 class PDFReport(FPDF):
     def header(self): self.set_font('Arial', 'B', 15); self.set_text_color(0, 229, 255); self.cell(0, 10, 'TriCoach Pro | Report', 0, 1, 'C'); self.ln(5)
@@ -627,32 +649,6 @@ def parse_tcx_pro(uploaded_file, athlete_all_zones):
         return res
     except Exception: return res
 
-def przygotuj_kalendarz(zawodnik):
-    events = []; df = get_df(zawodnik if zawodnik != tr("Wszyscy") else None)
-    for idx, t in df.iterrows():
-        if t['wykonany']:
-            if t.get('plan_czas', 0) > 0:
-                pct = (t['czas'] / t['plan_czas']) * 100
-                if 80 <= pct <= 120: col = "#00C853" 
-                elif 60 <= pct < 80 or 120 < pct <= 150: col = "#FFD600" 
-                else: col = "#D50000" 
-            else:
-                col = "#00C853" 
-        else:
-            col = "#1F2735" 
-
-        border = KOLORY_SPORT.get(t['dyscyplina'], "#00E5FF")
-        prefix = tr("Bieg") if t['dyscyplina']=="Bieganie" else tr("Rower") if t['dyscyplina']=="Rower" else tr("Pływanie")
-        title = f"{prefix} | {t['dystans']}km" if t.get('dystans') else f"{prefix} | {t['czas']}min"
-        if not t['wykonany']: title = f"[{tr('PLAN')}] {t['tytul']}"
-        events.append({"title": title, "start": str(t['data']), "backgroundColor": col, "borderColor": border, "allDay": True, "extendedProps": {"type": "trening", "data_str": str(t['data']), "dyscyplina": t['dyscyplina'], "tytul": t['tytul']}})
-    waga_data = list(db.get("waga", [])); wyscigi_data = list(db.get("wyscigi", []))
-    if zawodnik and zawodnik != tr("Wszyscy"): 
-        waga_data = [w for w in waga_data if w['zawodnik'] == zawodnik]; wyscigi_data = [r for r in wyscigi_data if r['zawodnik'] == zawodnik]
-    for w in waga_data: events.append({"title": f"{tr('Waga')}: {w['waga']} kg", "start": w['data'], "backgroundColor": "#2D3748", "borderColor": "#4A5568", "textColor": "#FFFFFF", "allDay": True, "extendedProps": {"type": "waga", "data_str": w['data'], "waga": w['waga']}})
-    for r in wyscigi_data: events.append({"title": f"🏆 {r['nazwa']}", "start": r['data'], "backgroundColor": "#FFD700", "borderColor": "#F57F17", "textColor": "#000000", "allDay": True})
-    return events
-
 def render_tp_weekly_list(df):
     if df.empty: 
         st.markdown(f"<div class='tp-summary-card'>{tr('Brak danych')}</div>", unsafe_allow_html=True); return
@@ -715,53 +711,14 @@ def render_planned_workout_view(t, user_ftp=250):
                         else:
                             st.error(f"⚠️ Błąd integracji: {str(e)}")
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        safe_fn = "".join([c for c in unicodedata.normalize('NFKD', str(t['tytul'])).encode('ASCII', 'ignore').decode('utf-8') if c.isalnum() or c in " -_"]).strip() or "Workout"
-        st.download_button(tr("Pobierz plik .ZWO (Zwift)"), data=generate_zwo_file(t), file_name=f"{safe_fn}.zwo", mime="text/xml")
     else: st.warning(tr("Tylko opis tekstowy."))
 
 def render_analysis_dashboard(t, user_settings):
-    if not t.get('wykonany'): render_planned_workout_view(t, user_settings.get('ftp', 250)); return
-
-    if t.get('plan_czas', 0) > 0:
-        comp_pct = int((t['czas'] / t['plan_czas']) * 100)
-        col = "#00E676" if 80 <= comp_pct <= 120 else ("#FFD600" if 60 <= comp_pct < 80 or 120 < comp_pct <= 150 else "#FF1744")
-        st.markdown(f"<div style='text-align:center; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 15px;'><span style='color:#8BA1B8; text-transform:uppercase; font-size:0.8em;'>{tr('Zgodność z planem:')}</span> <strong style='color:{col}; font-size:1.2em;'>{comp_pct}%</strong></div>", unsafe_allow_html=True)
-
-    k1,k2,k3,k4 = st.columns(4)
-    k1.markdown(f"<div class='metric-card'><div class='metric-val'>{t.get('dystans')} km</div><div class='metric-label'>{tr('Dystans')}</div></div>", unsafe_allow_html=True)
-    k2.markdown(f"<div class='metric-card'><div class='metric-val'>{t.get('czas')} m</div><div class='metric-label'>{tr('Czas')}</div></div>", unsafe_allow_html=True)
-    k3.markdown(f"<div class='metric-card'><div class='metric-val'>{t.get('tss')}</div><div class='metric-label'>TSS</div></div>", unsafe_allow_html=True)
-    np_val = calculate_normalized_power(t.get('streams', {}).get('watts', [])) if t.get('streams') and any(t['streams'].get('watts',[])) else 0
-    k4.markdown(f"<div class='metric-card'><div class='metric-val'>{np_val} W</div><div class='metric-label'>{tr('NP (Moc)')}</div></div>", unsafe_allow_html=True)
-    
-    st.markdown("---")
-    st.markdown(f"### 📋 {tr('Ocena Treningu (RPE i Samopoczucie)')}")
-    with st.form(key=f"edit_rpe_{t.get('data')}_{t.get('tytul')}"):
-        c_rpe, c_feel = st.columns(2)
-        new_rpe = c_rpe.slider("RPE (Odczuwany wysiłek)", 1, 10, int(t.get('rpe', 5)))
-        new_feel = c_feel.select_slider(tr("Samopoczucie"), ["😫","😕","😐","🙂","🤩"], value=t.get('feeling', '🙂'))
-        new_comm = st.text_area(tr("Notatka dla Trenera"), value=t.get('komentarz', ''))
-        
-        if st.form_submit_button("Zapisz Ocenę"):
-            temp_db = list(db["treningi"])
-            for w in temp_db:
-                if w.get('zawodnik') == t.get('zawodnik') and str(w.get('data')) == str(t.get('data')) and w.get('tytul') == t.get('tytul'):
-                    w['rpe'] = new_rpe
-                    w['feeling'] = new_feel
-                    w['komentarz'] = new_comm
-            db["treningi"] = temp_db
-            
-            for w in st.session_state.session_treningi:
-                if w.get('zawodnik') == t.get('zawodnik') and str(w.get('data')) == str(t.get('data')) and w.get('tytul') == t.get('tytul'):
-                    w['rpe'] = new_rpe
-                    w['feeling'] = new_feel
-                    w['komentarz'] = new_comm
-            st.rerun()
-
-    st.markdown("---")
+    if not t.get('wykonany'): return
 
     streams = t.get('streams')
+    has_pwr = streams and is_valid_stream(streams.get('watts'))
+    has_hr = streams and is_valid_stream(streams.get('hr'))
 
     if streams and any(streams.get('lat', [])):
         lat_list = [l for l in streams.get('lat', []) if l is not None]
@@ -796,28 +753,32 @@ def render_analysis_dashboard(t, user_settings):
         fig.update_layout(template="plotly_dark", height=500, showlegend=False, margin=dict(l=50,r=10,t=30,b=10), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig, use_container_width=True)
 
-        if streams and (any(streams.get('hr', [])) or any(streams.get('watts', []))):
+        # NAPRAWIONA SEKCJA CZASU W STREFACH (Brak pustych osi)
+        if has_pwr or has_hr:
             st.markdown(f"### 📊 {tr('Czas w strefach')}")
             cz1, cz2 = st.columns(2)
             
-            if any(streams.get('watts', [])) and user_settings.get("zones_pwr"):
+            if has_pwr and user_settings.get("zones_pwr"):
                 z_pwr = calculate_time_in_zones_custom(streams['watts'], user_settings["zones_pwr"], t.get('czas', 0))
                 if z_pwr:
                     df_zp = pd.DataFrame(z_pwr)
                     fig_zp = px.bar(df_zp, x='mins', y='label', orientation='h', title=tr("Moc"), text=df_zp['mins'].apply(lambda x: f"{x} min"), color='label', color_discrete_sequence=ZONE_COLORS)
-                    max_x_pwr = max(df_zp['mins'].max() * 1.1, 1)
+                    # Gwarancja rozpoczęcia osi od 0
+                    m_val = df_zp['mins'].max()
+                    max_x = float(m_val) * 1.1 if pd.notna(m_val) and float(m_val) > 0 else 1.0
                     fig_zp.update_layout(yaxis={'categoryorder':'category descending'}, template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-                    fig_zp.update_xaxes(range=[0, max_x_pwr])
+                    fig_zp.update_xaxes(range=[0, max_x])
                     cz1.plotly_chart(fig_zp, use_container_width=True)
                     
-            if any(streams.get('hr', [])) and user_settings.get("zones_hr"):
+            if has_hr and user_settings.get("zones_hr"):
                 z_hr = calculate_time_in_zones_custom(streams['hr'], user_settings["zones_hr"], t.get('czas', 0))
                 if z_hr:
                     df_zh = pd.DataFrame(z_hr)
                     fig_zh = px.bar(df_zh, x='mins', y='label', orientation='h', title=tr("Tętno"), text=df_zh['mins'].apply(lambda x: f"{x} min"), color='label', color_discrete_sequence=ZONE_COLORS)
-                    max_x_hr = max(df_zh['mins'].max() * 1.1, 1)
+                    m_val = df_zh['mins'].max()
+                    max_x = float(m_val) * 1.1 if pd.notna(m_val) and float(m_val) > 0 else 1.0
                     fig_zh.update_layout(yaxis={'categoryorder':'category descending'}, template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-                    fig_zh.update_xaxes(range=[0, max_x_hr])
+                    fig_zh.update_xaxes(range=[0, max_x])
                     cz2.plotly_chart(fig_zh, use_container_width=True)
 
     st.markdown("---")
@@ -842,6 +803,59 @@ def render_analysis_dashboard(t, user_settings):
             if new_comment:
                 add_comment_to_workout(t['zawodnik'], t['data'], t['tytul'], t['dyscyplina'], st.session_state.username, new_comment)
                 st.rerun()
+
+# --- MODUŁ WYŚWIETLANIA TRENINGU ---
+def render_workout_expander(row, idx, ja, is_coach=False):
+    t_dict = row.to_dict()
+    u_strefy_disc = get_user_zones(t_dict['zawodnik'], t_dict['dyscyplina'])
+    
+    with st.expander(f"{'✅' if t_dict['wykonany'] else '⬜'} {t_dict['data']} | {tr(t_dict['dyscyplina'])} - {t_dict['tytul']}"):
+        if not t_dict['wykonany']:
+            render_planned_workout_view(t_dict, u_strefy_disc.get('ftp', 250))
+        else:
+            if t_dict.get('plan_czas', 0) > 0:
+                comp_pct = int((t_dict['czas'] / t_dict['plan_czas']) * 100)
+                col = "#00E676" if 80 <= comp_pct <= 120 else ("#FFD600" if 60 <= comp_pct < 80 or 120 < comp_pct <= 150 else "#FF1744")
+                st.markdown(f"<div style='text-align:center; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 15px;'><span style='color:#8BA1B8; text-transform:uppercase; font-size:0.8em;'>{tr('Zgodność z planem:')}</span> <strong style='color:{col}; font-size:1.2em;'>{comp_pct}%</strong></div>", unsafe_allow_html=True)
+
+            k1,k2,k3,k4 = st.columns(4)
+            k1.markdown(f"<div class='metric-card'><div class='metric-val'>{t_dict.get('dystans')} km</div><div class='metric-label'>{tr('Dystans')}</div></div>", unsafe_allow_html=True)
+            k2.markdown(f"<div class='metric-card'><div class='metric-val'>{t_dict.get('czas')} m</div><div class='metric-label'>{tr('Czas')}</div></div>", unsafe_allow_html=True)
+            k3.markdown(f"<div class='metric-card'><div class='metric-val'>{t_dict.get('tss')}</div><div class='metric-label'>TSS</div></div>", unsafe_allow_html=True)
+            np_val = calculate_normalized_power(t_dict.get('streams', {}).get('watts', [])) if t_dict.get('streams') and is_valid_stream(t_dict['streams'].get('watts',[])) else 0
+            k4.markdown(f"<div class='metric-card'><div class='metric-val'>{np_val} W</div><div class='metric-label'>{tr('NP (Moc)')}</div></div>", unsafe_allow_html=True)
+
+            st.markdown("---")
+            # WIDOCZNY PANEL OCENY TRENINGU NA SAMYM WIERZCHU
+            st.markdown(f"### 📋 {tr('Ocena Treningu (RPE i Samopoczucie)')}")
+            col_rpe1, col_rpe2 = st.columns([3, 1])
+            col_rpe1.markdown(f"**RPE:** {t_dict.get('rpe', 5)}/10 | **Samopoczucie:** {t_dict.get('feeling', '🙂')}")
+            if t_dict.get('komentarz'):
+                col_rpe1.markdown(f"*{t_dict.get('komentarz')}*")
+                
+            if not is_coach:
+                if col_rpe2.button("✏️ Edytuj ocenę", key=f"btn_edit_{idx}_{t_dict['data']}"):
+                    st.session_state[f"edit_rating_{idx}_{t_dict['data']}"] = not st.session_state.get(f"edit_rating_{idx}_{t_dict['data']}", False)
+                    
+                if st.session_state.get(f"edit_rating_{idx}_{t_dict['data']}", False):
+                    with st.form(key=f"form_rating_{idx}_{t_dict['data']}"):
+                        n_rpe = st.slider("RPE (Odczuwany wysiłek)", 1, 10, int(t_dict.get('rpe', 5)))
+                        n_feel = st.select_slider("Samopoczucie", ["😫","😕","😐","🙂","🤩"], value=t_dict.get('feeling', '🙂'))
+                        n_kom = st.text_area("Notatka dla trenera", value=t_dict.get('komentarz', ''))
+                        if st.form_submit_button("Zapisz"):
+                            temp_db = list(db["treningi"])
+                            for w in temp_db:
+                                if w.get('zawodnik') == t_dict['zawodnik'] and str(w.get('data')) == str(t_dict['data']) and w.get('tytul') == t_dict['tytul'] and w.get('dyscyplina') == t_dict['dyscyplina']:
+                                    w['rpe'] = n_rpe
+                                    w['feeling'] = n_feel
+                                    w['komentarz'] = n_kom
+                            db["treningi"] = temp_db
+                            st.session_state.session_treningi = temp_db
+                            st.session_state[f"edit_rating_{idx}_{t_dict['data']}"] = False
+                            st.rerun()
+
+            if st.toggle(tr("Pełna Analiza (Wykresy i Mapa)"), key=f"tgl_{idx}_{t_dict['data']}"):
+                render_analysis_dashboard(t_dict, u_strefy_disc)
 
 # --- KREATOR ANKIETY ONBOARDINGOWEJ ---
 def render_onboarding_view(zawodnik):
@@ -1092,7 +1106,10 @@ if menu == tr("Dodaj aktywność"):
                 f_time = fc3.number_input(tr("Czas (min)"), value=curr['time'], disabled=is_file_mode)
                 f_dist = fc4.number_input(tr("Dystans (km)"), value=float(curr['dist']), disabled=is_file_mode)
                 f_tss = fc5.number_input("TSS", value=int(curr['tss']), disabled=is_file_mode)
+                
+                # Zmieniono logikę formularza - ręczne wgranie od razu ustawia RPE
                 st.markdown("---")
+                st.markdown(f"### {tr('Ocena Treningu (RPE i Samopoczucie)')}")
                 c_rpe, c_feel = st.columns(2)
                 f_rpe = c_rpe.slider("RPE", 1, 10, 5)
                 f_feel = c_feel.select_slider(tr("Samopoczucie"), ["😫","😕","😐","🙂","🤩"], value="🙂")
@@ -1109,25 +1126,10 @@ if menu == tr("Dodaj aktywność"):
                         new_entry['kroki'] = old_w.get('kroki', [])
                     save_data(new_entry); st.success(tr("Zapisano!")); st.session_state.pop('form_data', None); st.rerun()
 
-        with st.expander(tr("Loguj Wagę Ciała")):
-            with st.form("add_weight"):
-                w_date = st.date_input(tr("Data ważenia"), date.today())
-                w_val = st.number_input(tr("Waga (kg)"), min_value=30.0, max_value=200.0, value=75.0, step=0.1)
-                if st.form_submit_button(tr("Zapisz Wagę")):
-                    temp_waga = list(db["waga"])
-                    existing = [x for x in temp_waga if x['zawodnik'] == ja and x['data'] == str(w_date)]
-                    if existing: existing[0]['waga'] = w_val
-                    else: temp_waga.append({"zawodnik": ja, "data": str(w_date), "waga": w_val})
-                    db["waga"] = temp_waga; st.success(tr("Zapisano wagę!")); st.rerun()
-
         st.markdown(f"### {tr('Ostatnie Aktywności')}")
         df_plan = get_df(ja)
         for idx, row in df_plan.sort_values('data', ascending=False).iterrows():
-            with st.expander(f"{'✅' if row['wykonany'] else '⬜'} {row['data']} | {tr(row['dyscyplina'])} - {row['tytul']}"):
-                u_strefy_disc = get_user_zones(ja, row['dyscyplina'])
-                if not row['wykonany']: render_planned_workout_view(row, u_strefy_disc.get('ftp', 250))
-                else: 
-                    if st.toggle(tr("Analiza"), key=f"tgl_{idx}"): render_analysis_dashboard(row.to_dict(), u_strefy_disc)
+            render_workout_expander(row, idx, ja, is_coach=False)
 
 # --- 1.5 CZAT (WIADOMOŚCI) ---
 elif menu == tr("Wiadomości"):
@@ -1249,6 +1251,11 @@ elif menu == tr("Kalendarz"):
                     if not match_df.empty: 
                         st.subheader(f"{tr('Szczegóły:')} {props.get('tytul')}")
                         t_dict = match_df.iloc[0].to_dict()
+                        
+                        # Trener nie ocenia za zawodnika (widzi po prostu analizę)
+                        st.markdown(f"**RPE:** {t_dict.get('rpe', 5)}/10 | **Samopoczucie:** {t_dict.get('feeling', '🙂')}")
+                        if t_dict.get('komentarz'):
+                            st.markdown(f"*{t_dict.get('komentarz')}*")
                         render_analysis_dashboard(t_dict, get_user_zones(target, t_dict['dyscyplina']))
                     else: st.info(tr("Nie znaleziono szczegółów. Sprawdź listę zadań."))
 
@@ -1256,65 +1263,6 @@ elif menu == tr("Kalendarz"):
 
     with tab_lista:
         st.markdown(f"### 📋 {tr('Ostatnie Aktywności')}")
-        st.markdown("""
-        <style>
-        .trening-karta {
-            background-color: #11151C; 
-            border-radius: 12px;
-            padding: 16px;
-            margin-bottom: 12px;
-            border-left: 5px solid #00E5FF; 
-            border-top: 1px solid #1F2735;
-            border-right: 1px solid #1F2735;
-            border-bottom: 1px solid #1F2735;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-        }
-        .trening-naglowek {
-            display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;
-        }
-        .trening-tytul {
-            font-size: 18px; font-weight: 800; color: #FFFFFF; margin-bottom: 2px;
-        }
-        .trening-data {
-            font-size: 13px; color: #8BA1B8;
-        }
-        .trening-trimp {
-            background-color: rgba(0, 229, 255, 0.15); 
-            color: #00E5FF; padding: 5px 12px; border-radius: 20px;
-            font-weight: 800; font-size: 14px; border: 1px solid rgba(0, 229, 255, 0.3);
-        }
-        .trening-statystyki {
-            display: flex; justify-content: space-between; font-size: 15px;
-            color: #E2E8F0; font-weight: 600;
-        }
-        .stat-item {
-            display: flex; flex-direction: column;
-        }
-        .stat-label {
-            font-size: 11px; color: #8BA1B8; text-transform: uppercase;
-            margin-bottom: 2px; font-weight: 600; letter-spacing: 0.5px;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
-        def narysuj_karte(sport, data, dystans, czas, tss_val, ty_color="#00E5FF"):
-            html = f'''
-            <div class="trening-karta" style="border-left-color: {ty_color};">
-                <div class="trening-naglowek">
-                    <div>
-                        <div class="trening-tytul">{sport}</div>
-                        <div class="trening-data">{data}</div>
-                    </div>
-                    <div class="trening-trimp" style="color: {ty_color}; border-color: {ty_color}; background-color: {ty_color}20;">{tss_val} TSS</div>
-                </div>
-                <div class="trening-statystyki">
-                    <div class="stat-item"><span class="stat-label">{tr("Dystans")}</span><span>{dystans}</span></div>
-                    <div class="stat-item"><span class="stat-label">{tr("Czas")}</span><span>{czas}</span></div>
-                </div>
-            </div>
-            '''
-            st.markdown(html, unsafe_allow_html=True)
-
         df_lista = get_df(target)
         if not df_lista.empty:
             df_lista = df_lista[df_lista['wykonany'] == True].sort_values('data', ascending=False)
@@ -1322,16 +1270,7 @@ elif menu == tr("Kalendarz"):
                 st.info(tr("Brak wykonanych aktywności."))
             else:
                 for idx, t_row in df_lista.iterrows():
-                    ikona_sport = "🏃" if t_row['dyscyplina'] == "Bieganie" else "🚴" if t_row['dyscyplina'] == "Rower" else "🏊" if t_row['dyscyplina'] == "Pływanie" else "🏋️"
-                    sport_txt = f"{ikona_sport} {tr(t_row['dyscyplina']).upper()}"
-                    kolor_dyscypliny = KOLORY_SPORT.get(t_row['dyscyplina'], "#00E5FF")
-                    dyst = f"{t_row.get('dystans', 0)} km"
-                    czs = format_czas(t_row.get('czas', 0))
-                    
-                    narysuj_karte(sport_txt, str(t_row['data']), dyst, czs, int(t_row.get('tss', 0)), kolor_dyscypliny)
-                    
-                    with st.expander(f"🔍 {tr('Analiza')}: {t_row['tytul']}"):
-                        render_analysis_dashboard(t_row.to_dict(), get_user_zones(target, t_row['dyscyplina']))
+                    render_workout_expander(t_row, idx, ja, is_coach=(st.session_state.role=="coach"))
         else:
             st.info(tr("Brak wykonanych aktywności."))
 
@@ -1485,7 +1424,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
         
     with tab5:
         st.markdown("### 🔵 Autoryzacja Garmin Connect")
-        st.markdown("<span style='color:#8BA1B8;'>Podaj dane logowania, aby aplikacja Endura IQ mogła automatycznie wysyłać zaplanowane treningi prosto do Twojego kalendarza w zegarku.</span>", unsafe_allow_html=True)
+        st.markdown("<span style='color:#8BA1B8;'>Podaj dane logowania, aby aplikacja Endura IQ mogła automatycznie pobierać i wysyłać zaplanowane treningi do kalendarza Garmin.</span>", unsafe_allow_html=True)
         creds = db["garmin_creds"].get(sel_user, {})
         with st.form("garmin_form"):
             g_email = st.text_input("E-mail Garmin", value=creds.get("email", ""))
@@ -1494,7 +1433,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
                 temp_gc = db["garmin_creds"]
                 temp_gc[sel_user] = {"email": g_email, "password": g_pass}
                 db["garmin_creds"] = temp_gc
-                st.success("Zapisano dane. Od teraz możesz wysyłać treningi prosto z kalendarza!")
+                st.success("Zapisano dane do chmury Garmina!")
                 
     with tab6:
         sel_user_disp = get_display_name(sel_user)
