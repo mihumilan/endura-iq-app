@@ -156,9 +156,6 @@ def inject_custom_css():
         tbody tr:nth-of-type(odd) { background-color: #161B22; }
         #MainMenu {visibility: hidden;} footer {visibility: hidden;}
         
-        /* --------------------------------- */
-        /* EKSKLUZYWNY WYGLĄD KALENDARZA TP  */
-        /* --------------------------------- */
         .fc { font-family: 'Inter', sans-serif !important; background: #0A0D12; border-radius: 12px; padding: 10px; border: 1px solid #1F2735; }
         .fc-theme-standard td, .fc-theme-standard th { border-color: #1F2735 !important; }
         .fc-col-header-cell { padding: 12px 0; background-color: #11151C; color: #8BA1B8; text-transform: uppercase; font-size: 0.85em; letter-spacing: 1.5px; }
@@ -198,7 +195,6 @@ if "zawodnicy_list" not in db or not isinstance(db.get("zawodnicy_list"), list):
 
 ZAWODNICY = db.get("zawodnicy_list", [])
 
-# NOWOŚĆ W BAZIE DANYCH: Zbiór notatek/komentarzy do poszczególnych dni ("day_notes")
 for key in ["treningi", "strefy", "wyscigi", "biblioteka", "fizjologia", "power_profile", "run_records", "waga", "chat", "plany", "garmin_creds", "zawodnicy_info", "day_notes"]:
     if key not in db: db[key] = {} if key in ["strefy", "garmin_creds", "zawodnicy_info"] else []
 if isinstance(db["strefy"], list): db["strefy"] = {}
@@ -348,20 +344,6 @@ def save_data(new_entry):
     st.session_state.session_treningi.append(new_entry)
     db["treningi"] = list(db["treningi"]) + [new_entry]
 
-def add_comment_to_workout(zawodnik, data_str, tytul, dyscyplina, autor, tresc):
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    new_comment = {"autor": autor, "data": now_str, "tresc": tresc}
-    for w in st.session_state.session_treningi:
-        if w.get('zawodnik') == zawodnik and str(w.get('data')) == str(data_str) and w.get('tytul') == tytul and w.get('dyscyplina') == dyscyplina:
-            if 'komentarze_treningu' not in w: w['komentarze_treningu'] = []
-            w['komentarze_treningu'].append(new_comment)
-    temp_db = list(db["treningi"])
-    for w in temp_db:
-        if w.get('zawodnik') == zawodnik and str(w.get('data')) == str(data_str) and w.get('tytul') == tytul and w.get('dyscyplina') == dyscyplina:
-            if 'komentarze_treningu' not in w: w['komentarze_treningu'] = []
-            w['komentarze_treningu'].append(new_comment)
-    db["treningi"] = temp_db
-
 def get_df(zawodnik=None):
     data = st.session_state.session_treningi
     if not data: return pd.DataFrame()
@@ -404,6 +386,7 @@ def get_next_race(zawodnik):
     future_races.sort(key=lambda x: x[1])
     return future_races[0]
 
+# --- NOWOŚĆ: INTELIGENTNE TARGETY DO ZEGARKA GARMIN ---
 def send_workout_to_garmin_connect(email, password, workout_data):
     import garminconnect
     client = garminconnect.Garmin(email, password)
@@ -412,20 +395,59 @@ def send_workout_to_garmin_connect(email, password, workout_data):
     sport_str = workout_data.get('dyscyplina', 'Bieganie')
     sport_id, sport_key = (2, "cycling") if sport_str == "Rower" else ((4, "swimming") if sport_str == "Pływanie" else (1, "running"))
     
+    zawodnik = workout_data.get('zawodnik')
+    user_zones = db["strefy"].get(zawodnik, {}).get(sport_str, {})
+    ftp = user_zones.get('ftp', 250)
+    
     steps = []
     for i, k in enumerate(workout_data.get('kroki', [])):
         typ_str = k.get('typ', 'Interwał')
         s_id, s_key = (1, "warmup") if typ_str == "Rozgrzewka" else ((2, "cooldown") if typ_str == "Rozjazd" else ((4, "rest") if typ_str == "Przerwa" else (3, "active")))
         
+        tryb = k.get('tryb', '')
+        v1 = float(k.get('val_min', 0))
+        v2 = float(k.get('val_max', 0))
+        
+        t_type_id = 1
+        t_type_key = "no.target"
+        t_val1 = None
+        t_val2 = None
+        
+        if "Waty" in tryb and v1 > 0 and v2 > 0:
+            t_type_id = 2
+            t_type_key = "power.custom"
+            t_val1 = int(min(v1, v2))
+            t_val2 = int(max(v1, v2))
+        elif "%" in tryb and v1 > 0 and v2 > 0:
+            t_type_id = 2
+            t_type_key = "power.custom"
+            t_val1 = int((min(v1, v2) / 100.0) * ftp)
+            t_val2 = int((max(v1, v2) / 100.0) * ftp)
+        elif "Tętno" in tryb and v1 > 0 and v2 > 0:
+            t_type_id = 4
+            t_type_key = "heart.rate.custom"
+            t_val1 = int(min(v1, v2))
+            t_val2 = int(max(v1, v2))
+        elif "Tempo" in tryb and v1 > 0 and v2 > 0:
+            t_type_id = 6
+            t_type_key = "pace.custom"
+            # Zegarek Garmin oczekuje tempa w metrach na sekundę (m/s)
+            speed1 = 1000.0 / (v1 * 60.0)
+            speed2 = 1000.0 / (v2 * 60.0)
+            t_val1 = round(min(speed1, speed2), 3)
+            t_val2 = round(max(speed1, speed2), 3)
+            
+        desc_str = f"{tryb} {float_to_pace_str(v1) if 'Tempo' in tryb else int(v1)}-{float_to_pace_str(v2) if 'Tempo' in tryb else int(v2)}"
+        
         step_dict = {
             "type": "ExecutableStepDTO",
             "stepId": i+1,
             "stepOrder": i+1,
-            "description": f"{k.get('tryb','')} {k.get('val_min',0)}-{k.get('val_max',0)}"[:50],
+            "description": desc_str[:50],
             "stepType": {"stepTypeId": s_id, "stepTypeKey": s_key},
-            "targetType": {"workoutTargetTypeId": 1, "workoutTargetTypeKey": "no.target"},
-            "targetValueOne": None,
-            "targetValueTwo": None
+            "targetType": {"workoutTargetTypeId": t_type_id, "workoutTargetTypeKey": t_type_key},
+            "targetValueOne": t_val1,
+            "targetValueTwo": t_val2
         }
         
         if k.get('is_distance'):
@@ -452,7 +474,7 @@ def send_workout_to_garmin_connect(email, password, workout_data):
         w_id = res_dict["workoutId"]
         w_date = str(workout_data.get('data', date.today()))
         client.garth.post("connectapi", f"/workout-service/schedule/{w_id}", json={"date": w_date})
-        return True, "Zrobione! Trening jest gotowy w kalendarzu. Uruchom Garmin Connect w telefonie, żeby zsynchronizować zegarek."
+        return True, "Zrobione! Trening jest gotowy. Twój zegarek będzie pilnował intensywności."
     else:
         return False, f"Błąd po stronie serwerów Garmin: {str(res_dict)[:150]}"
 
@@ -560,25 +582,19 @@ def is_valid_stream(s):
             except: pass
     return False
 
-# --- NOWOŚĆ: ZMODERNIZOWANY WIDOK KALENDARZA (STYL TRAININGPEAKS) ---
 def przygotuj_kalendarz(zawodnik):
     events = []; df = get_df(zawodnik if zawodnik != tr("Wszyscy") else None)
     for idx, t in df.iterrows():
-        # Ustawianie piktogramów treningów
         ikona = "🏃" if t['dyscyplina'] == "Bieganie" else "🚴" if t['dyscyplina'] == "Rower" else "🏊" if t['dyscyplina'] == "Pływanie" else "🏋️"
         
         if t['wykonany']:
-            # Sprawdzanie wykonania względem planu (Kolory TP)
             if t.get('plan_czas', 0) > 0:
                 pct = (t['czas'] / t['plan_czas']) * 100
-                if 80 <= pct <= 120: 
-                    c_class = "completed-workout-green" 
-                elif 60 <= pct < 80 or 120 < pct <= 150: 
-                    c_class = "completed-workout-yellow" 
-                else: 
-                    c_class = "completed-workout-red" 
+                if 80 <= pct <= 120: c_class = "completed-workout-green" 
+                elif 60 <= pct < 80 or 120 < pct <= 150: c_class = "completed-workout-yellow" 
+                else: c_class = "completed-workout-red" 
             else:
-                c_class = "completed-workout-green" # Trening zrobiony bez planu
+                c_class = "completed-workout-green"
                 
             title_text = f"{ikona} {t['dystans']}km / {t['czas']}m" if t.get('dystans') else f"{ikona} {t['czas']}m"
             events.append({
@@ -589,7 +605,6 @@ def przygotuj_kalendarz(zawodnik):
                 "extendedProps": {"type": "trening", "data_str": str(t['data']), "dyscyplina": t['dyscyplina'], "tytul": t['tytul']}
             })
         else:
-            # Planowane treningi (Dashed / Neon)
             title_text = f"{ikona} [PLAN] {t['tytul']}"
             events.append({
                 "title": title_text, 
@@ -599,7 +614,6 @@ def przygotuj_kalendarz(zawodnik):
                 "extendedProps": {"type": "trening", "data_str": str(t['data']), "dyscyplina": t['dyscyplina'], "tytul": t['tytul']}
             })
 
-    # Waga Zawodnika
     waga_data = list(db.get("waga", [])); wyscigi_data = list(db.get("wyscigi", []))
     if zawodnik and zawodnik != tr("Wszyscy"): 
         waga_data = [w for w in waga_data if w['zawodnik'] == zawodnik]
@@ -608,16 +622,13 @@ def przygotuj_kalendarz(zawodnik):
     for w in waga_data: 
         events.append({"title": f"⚖️ {w['waga']} kg", "start": w['data'], "className": "weight-event", "allDay": True, "extendedProps": {"type": "waga", "data_str": w['data'], "waga": w['waga']}})
     
-    # Wyścigi (Złote)
     for r in wyscigi_data: 
         events.append({"title": f"🏆 {r['nazwa']}", "start": r['data'], "className": "race-event", "allDay": True})
         
-    # Komentarze do danego Dnia (Pinezki)
     notes_data = list(db.get("day_notes", []))
     if zawodnik and zawodnik != tr("Wszyscy"):
         notes_data = [n for n in notes_data if n['zawodnik'] == zawodnik]
     for n in notes_data:
-        # Komentarze pokazują się jako mały pochyły tekst na samej górze dnia
         events.append({"title": f"💬 {n['note']}", "start": n['data'], "className": "day-note-event", "allDay": True})
 
     return events
@@ -847,22 +858,30 @@ def render_analysis_dashboard(t, user_settings):
                 z_pwr = calculate_time_in_zones_custom(streams['watts'], user_settings["zones_pwr"], t.get('czas', 0))
                 if z_pwr:
                     df_zp = pd.DataFrame(z_pwr)
-                    fig_zp = px.bar(df_zp, x='mins', y='label', orientation='h', title=tr("Moc"), text=df_zp['mins'].apply(lambda x: f"{x} min"), color='label', color_discrete_sequence=ZONE_COLORS)
-                    m_val = df_zp['mins'].max()
-                    max_x = float(m_val) * 1.1 if pd.notna(m_val) and float(m_val) > 0 else 1.0
-                    fig_zp.update_layout(yaxis={'categoryorder':'category descending'}, template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-                    fig_zp.update_xaxes(range=[0, max_x])
+                    fig_zp = go.Figure(go.Bar(
+                        x=df_zp['mins'], y=df_zp['label'], orientation='h',
+                        text=df_zp['mins'].apply(lambda x: f"{x} min"), textposition='auto',
+                        marker_color=ZONE_COLORS[:len(df_zp)]
+                    ))
+                    max_x_pwr = float(df_zp['mins'].max() * 1.1) if not df_zp.empty else 1.0
+                    if max_x_pwr <= 0: max_x_pwr = 1.0
+                    fig_zp.update_layout(title=tr("Moc"), yaxis={'categoryorder':'category descending'}, template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                    fig_zp.update_xaxes(range=[0, max_x_pwr])
                     cz1.plotly_chart(fig_zp, use_container_width=True)
                     
             if has_hr and user_settings.get("zones_hr"):
                 z_hr = calculate_time_in_zones_custom(streams['hr'], user_settings["zones_hr"], t.get('czas', 0))
                 if z_hr:
                     df_zh = pd.DataFrame(z_hr)
-                    fig_zh = px.bar(df_zh, x='mins', y='label', orientation='h', title=tr("Tętno"), text=df_zh['mins'].apply(lambda x: f"{x} min"), color='label', color_discrete_sequence=ZONE_COLORS)
-                    m_val = df_zh['mins'].max()
-                    max_x = float(m_val) * 1.1 if pd.notna(m_val) and float(m_val) > 0 else 1.0
-                    fig_zh.update_layout(yaxis={'categoryorder':'category descending'}, template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-                    fig_zh.update_xaxes(range=[0, max_x])
+                    fig_zh = go.Figure(go.Bar(
+                        x=df_zh['mins'], y=df_zh['label'], orientation='h',
+                        text=df_zh['mins'].apply(lambda x: f"{x} min"), textposition='auto',
+                        marker_color=ZONE_COLORS[:len(df_zh)]
+                    ))
+                    max_x_hr = float(df_zh['mins'].max() * 1.1) if not df_zh.empty else 1.0
+                    if max_x_hr <= 0: max_x_hr = 1.0
+                    fig_zh.update_layout(title=tr("Tętno"), yaxis={'categoryorder':'category descending'}, template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                    fig_zh.update_xaxes(range=[0, max_x_hr])
                     cz2.plotly_chart(fig_zh, use_container_width=True)
 
     st.markdown("---")
@@ -1287,7 +1306,6 @@ elif menu == tr("Kalendarz"):
         col_c, col_s = st.columns([3, 1])
         with col_c:
             
-            # WIDŻET KALENDARZA STREAMLIT (STYLOWANY PRZEZ CSS)
             events = przygotuj_kalendarz(target)
             cal_options = {
                 "initialView": "dayGridMonth",
@@ -1311,12 +1329,15 @@ elif menu == tr("Kalendarz"):
                 if selected != st.session_state.get('cal_click_date'): 
                     st.session_state.cal_click_date = selected; st.rerun()
                     
-            # --- SEKCJA PO KLIKNIĘCIU W DZIEŃ W KALENDARZU ---
             if 'cal_click_date' in st.session_state and st.session_state.cal_click_date:
                 c_date = st.session_state.cal_click_date
-                st.markdown(f"### 🗓️ Podsumowanie Dnia: {c_date}")
                 
-                # Moduł notatek do dnia
+                st.markdown(f"### 🗓️ Panel Dnia: {c_date}")
+                
+                if st.button("❌ Zamknij panel dnia"):
+                    st.session_state.cal_click_date = None
+                    st.rerun()
+                
                 curr_notes = [n for n in db.get("day_notes", []) if n['zawodnik'] == target and n['data'] == c_date]
                 curr_note_text = curr_notes[0]['note'] if curr_notes else ""
                 
@@ -1329,10 +1350,9 @@ elif menu == tr("Kalendarz"):
                         if note_input.strip():
                             all_notes.append({"zawodnik": target, "data": c_date, "note": note_input})
                         db["day_notes"] = all_notes
-                        st.success("Notatka przypięta do kalendarza!")
+                        st.session_state.cal_click_date = None
                         st.rerun()
                 
-                # Dodawanie wyścigów w konkretny dzień
                 with st.expander(f"🏆 Dodaj Zawody w dniu {c_date}"):
                     with st.form("add_race_form_click"):
                         r_name = st.text_input(tr("Nazwa zawodów"), placeholder="Ironman Frankfurt")
@@ -1340,7 +1360,6 @@ elif menu == tr("Kalendarz"):
                             db["wyscigi"] = list(db.get("wyscigi", [])) + [{"zawodnik": target, "nazwa": r_name, "data": c_date}]
                             st.success(tr("Dodano zawody!")); st.rerun()
 
-                # Narzędzia Trenera dla wybranego dnia
                 if st.session_state.role == "coach":
                     with st.expander(f"⚡ Zaplanuj Trening (Trener) - {c_date}"):
                         with st.form("plan_workout_click"):
@@ -1360,7 +1379,6 @@ elif menu == tr("Kalendarz"):
                 
                 st.markdown("---")
 
-            # --- OTWIERANIE TRENINGU Z KALENDARZA ---
             if cal.get("eventClick"):
                 props = cal["eventClick"]["event"].get("extendedProps", {})
                 if props.get("type") == "waga": 
@@ -1370,6 +1388,7 @@ elif menu == tr("Kalendarz"):
                     if not match_df.empty: 
                         st.subheader(f"📊 {tr('Szczegóły:')} {props.get('tytul')}")
                         t_dict = match_df.iloc[0].to_dict()
+                        
                         if t_dict.get('wykonany') and st.session_state.role == "coach":
                             st.markdown(f"**RPE:** {t_dict.get('rpe', 5)}/10 | **Samopoczucie:** {t_dict.get('feeling', '🙂')}")
                             if t_dict.get('komentarz'):
