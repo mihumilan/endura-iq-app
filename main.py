@@ -170,10 +170,11 @@ KOLORY_SPORT = {"Pływanie": "#2979FF", "Rower": "#FF1744", "Bieganie": "#00E676
 KOLORY_BLOKOW = {"Rozgrzewka": "#558B2F", "Interwał": "#D32F2F", "Przerwa": "#1976D2", "Rozjazd": "#616161"}
 ZONE_COLORS = ["#9E9E9E", "#2196F3", "#4CAF50", "#FFC107", "#FF5722", "#D50000", "#880E4F"]
 
-for key in ["treningi", "strefy", "wyscigi", "biblioteka", "fizjologia", "power_profile", "run_records", "waga", "chat", "plany", "garmin_creds"]:
-    if key not in db: db[key] = {} if key in ["strefy", "garmin_creds"] else []
+for key in ["treningi", "strefy", "wyscigi", "biblioteka", "fizjologia", "power_profile", "run_records", "waga", "chat", "plany", "garmin_creds", "zawodnicy_info"]:
+    if key not in db: db[key] = {} if key in ["strefy", "garmin_creds", "zawodnicy_info"] else []
 if isinstance(db["strefy"], list): db["strefy"] = {}
 if isinstance(db["garmin_creds"], list): db["garmin_creds"] = {}
+if isinstance(db["zawodnicy_info"], list): db["zawodnicy_info"] = {}
 if "session_treningi" not in st.session_state: st.session_state.session_treningi = list(db["treningi"])
 
 # ==========================================
@@ -412,7 +413,7 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
         if not a_id or a_id in existing_ids:
             continue
             
-        # Zaciągamy z API bezpieczne dane bazowe (żeby trening dodał się w 100%)
+        # Zaciągamy z API bezpieczne dane bazowe
         garmin_type = act.get('activityType', {}).get('typeKey', '')
         if "run" in garmin_type: sport = "Bieganie"
         elif "cycling" in garmin_type: sport = "Rower"
@@ -436,7 +437,6 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
             "peak_powers": {}, "best_times": {}
         }
         
-        # Próba "wyciągnięcia" pełnych wykresów przez TCX, ale w razie blokady Garmina - ignorujemy to
         try:
             try:
                 dl_fmt = client.ActivityDownloadFormat.TCX
@@ -460,16 +460,15 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
                     parsed = parsed_tcx
                     if parsed['sport'] == "Inne": parsed['sport'] = sport
         except Exception:
-            pass # Garmin nie oddał pliku z wykresem, ale podstawowe dane i tak dodamy do Endura IQ!
+            pass 
             
-        # Zabezpieczenie TSS (jeśli TCX uległ awarii, szacujemy TSS z czasu)
         tss_val = parsed.get('tss', 0)
         if tss_val == 0 and duration_min > 0:
             tss_val = int((duration_min/60)*50)
             
         new_entry = {
             "zawodnik": zawodnik,
-            "garmin_id": a_id, # Dodane ID zabezpieczające przed dublowaniem
+            "garmin_id": a_id, 
             "dyscyplina": parsed['sport'],
             "data": act_date,
             "tytul": tytul,
@@ -793,6 +792,99 @@ def render_analysis_dashboard(t, user_settings):
                 add_comment_to_workout(t['zawodnik'], t['data'], t['tytul'], t['dyscyplina'], st.session_state.username, new_comment)
                 st.rerun()
 
+# --- KREATOR ANKIETY ONBOARDINGOWEJ ---
+def render_onboarding_view(zawodnik):
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='text-align:center; color:#00E5FF;'>Witaj w Endura IQ, {zawodnik.split(' ')[0]}! 🚀</h1>", unsafe_allow_html=True)
+    st.markdown("<h4 style='text-align:center; color:#8BA1B8; margin-bottom: 30px;'>Zanim ułożymy Twój pierwszy plan, musimy się lepiej poznać. Przejdź przez krótki formularz, a my zajmiemy się resztą.</h4>", unsafe_allow_html=True)
+    
+    with st.form("onboarding_wizard"):
+        t1, t2, t3, t4, t5 = st.tabs(["❤️ Zdrowie", "⏱️ Styl Życia", "🎯 Cele", "🚴 Sprzęt", "🧠 Psychologia"])
+        
+        with t1:
+            st.markdown("### Podstawowe parametry")
+            c1, c2, c3 = st.columns(3)
+            wzrost = c1.number_input("Wzrost (cm)", 100, 250, 175)
+            waga = c2.number_input("Waga (kg)", 30.0, 200.0, 70.0)
+            hr_rest = c3.number_input("Tętno spoczynkowe (BPM)", 30, 120, 50)
+            
+            st.markdown("### Profil medyczny")
+            st.markdown("Czy cierpisz na:")
+            ch1, ch2, ch3, ch4 = st.columns(4)
+            cukrzyca = ch1.checkbox("Cukrzycę")
+            astma = ch2.checkbox("Astmę / Duszności")
+            serce = ch3.checkbox("Choroby serca")
+            plecy = ch4.checkbox("Problemy z kręgosłupem/stawami")
+            
+            urazy = st.text_area("Opisz przebyte urazy, operacje i kontuzje:")
+            
+        with t2:
+            st.markdown("### Praca i odpoczynek")
+            c1, c2 = st.columns(2)
+            praca = c1.selectbox("Charakter pracy", ["Siedząca (biuro)", "Fizyczna", "Mieszana", "Wymagająca stania"])
+            sen = c2.number_input("Średnia ilość snu (h)", 4.0, 12.0, 7.5)
+            
+            st.markdown("### Twój standardowy tydzień")
+            st.markdown("Ile czasu (w godzinach) możesz przeznaczyć na trening w poszczególne dni?")
+            d1, d2, d3, d4, d5, d6, d7 = st.columns(7)
+            t_pn = d1.number_input("PN", 0.0, 10.0, 1.0)
+            t_wt = d2.number_input("WT", 0.0, 10.0, 1.0)
+            t_sr = d3.number_input("ŚR", 0.0, 10.0, 1.0)
+            t_cz = d4.number_input("CZ", 0.0, 10.0, 1.0)
+            t_pt = d5.number_input("PT", 0.0, 10.0, 1.0)
+            t_so = d6.number_input("SO", 0.0, 10.0, 2.0)
+            t_nd = d7.number_input("ND", 0.0, 10.0, 2.0)
+            
+        with t3:
+            st.markdown("### Doświadczenie w sporcie")
+            lata_sport = st.number_input("Lata stażu w sportach wytrzymałościowych", 0, 50, 2)
+            cel_glowny = st.text_area("Jaki jest Twój główny cel na ten sezon? (np. Ukończyć 1/2 IM poniżej 5h)")
+            zawody_a = st.text_input("Główne Zawody (Wyścig kategorii A) - Nazwa i data")
+            
+        with t4:
+            st.markdown("### Dostęp do infrastruktury i sprzętu")
+            c_s1, c_s2 = st.columns(2)
+            basen = c_s1.checkbox("🏊 Mam stały dostęp do basenu/wód otwartych")
+            silownia = c_s2.checkbox("🏋️ Mam dostęp do siłowni")
+            trenazer = c_s1.checkbox("🚴 Posiadam trenażer rowerowy (Smart)")
+            pomiar_mocy = c_s2.checkbox("⚡ Posiadam pomiar mocy w rowerze")
+            
+            slabe_strony = st.text_area("Co uważasz za swoją najsłabszą dyscyplinę / element i dlaczego?")
+            
+        with t5:
+            st.markdown("### Samoocena psychologiczna")
+            st.markdown("<span style='color:#8BA1B8;'>Oceń siebie w skali od 1 (Słabo) do 5 (Doskonale)</span>", unsafe_allow_html=True)
+            p1 = st.slider("Odporność na ból i dyskomfort", 1, 5, 3)
+            p2 = st.slider("Umiejętność koncentracji w stresie (podczas startu)", 1, 5, 3)
+            p3 = st.slider("Spójność i żelazna dyscyplina w treningu", 1, 5, 3)
+            p4 = st.slider("Zdolność do odpoczynku (bez poczucia winy, że nie trenujesz)", 1, 5, 3)
+            
+        st.markdown("<br>", unsafe_allow_html=True)
+        submit_onboarding = st.form_submit_button("ZAPISZ MÓJ PROFIL I WEJDŹ DO APLIKACJI 🚀")
+        
+        if submit_onboarding:
+            profil = {
+                "onboarded": True,
+                "wzrost": wzrost, "waga": waga, "hr_rest": hr_rest,
+                "choroby": {"cukrzyca": cukrzyca, "astma": astma, "serce": serce, "plecy": plecy},
+                "urazy": urazy,
+                "praca": praca, "sen": sen,
+                "czas_trening": {"PN": t_pn, "WT": t_wt, "SR": t_sr, "CZ": t_cz, "PT": t_pt, "SO": t_so, "ND": t_nd},
+                "lata_sport": lata_sport, "cel_glowny": cel_glowny, "zawody_a": zawody_a,
+                "sprzet": {"basen": basen, "trenazer": trenazer, "pomiar_mocy": pomiar_mocy, "silownia": silownia},
+                "slabe_strony": slabe_strony,
+                "psychologia": {"bol": p1, "stres": p2, "dyscyplina": p3, "odpoczynek": p4},
+                "data_wypelnienia": str(date.today())
+            }
+            
+            temp_info = db["zawodnicy_info"]
+            temp_info[zawodnik] = profil
+            db["zawodnicy_info"] = temp_info
+            
+            st.success("Profil zapisany! Trwa ładowanie Twojego konta...")
+            time.sleep(2)
+            st.rerun()
+
 # ==========================================
 # 4. LOGOWANIE
 # ==========================================
@@ -820,6 +912,14 @@ if not st.session_state.logged_in:
 # 5. APLIKACJA MAIN
 # ==========================================
 ja = st.session_state.username
+
+# Blokada aplikacji dla zawodnika, który nie wypełnił ankiety
+if st.session_state.role == "athlete":
+    athlete_info = db["zawodnicy_info"].get(ja, {})
+    if not athlete_info.get("onboarded", False):
+        render_onboarding_view(ja)
+        st.stop()
+
 st.sidebar.markdown(f"<h3 style='color: #00E5FF; text-align: center; margin-bottom: 20px;'>{ja.upper()}</h3>", unsafe_allow_html=True)
 lang_sel = st.sidebar.radio("Language / Język", ["PL", "EN"], horizontal=True, index=0 if st.session_state.lang == 'PL' else 1)
 if lang_sel != st.session_state.lang: st.session_state.lang = lang_sel; st.rerun()
@@ -1146,7 +1246,6 @@ elif menu == tr("Kalendarz"):
         else:
             st.info(tr("Brak wykonanych aktywności."))
 
-
 # --- 3. DASHBOARD ---
 elif menu == tr("Dashboard"):
     st.title(tr("Centrum Zarządzania")); cols = st.columns(3)
@@ -1182,7 +1281,9 @@ elif menu == tr("Dashboard"):
 elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
     st.title(tr("Dane Zawodnika i Fizjologia"))
     sel_user = st.selectbox(tr("Zawodnik:"), ZAWODNICY) if st.session_state.role == "coach" else ja
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([tr("Profil Mocy (CP)"), tr("Rekordy Biegowe"), tr("Badania & Trendy"), tr("Waga"), "Integracje 🔗"])
+    
+    # DODANO ZAKŁADKĘ Z ANKIETĄ DLA TRENERA
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([tr("Profil Mocy (CP)"), tr("Rekordy Biegowe"), tr("Badania & Trendy"), tr("Waga"), "Integracje 🔗", "📝 Ankieta Profilowa"])
 
     with tab1:
         st.markdown(f"### {tr('Profil Mocy Rowerowej (Automatyczny)')}")
@@ -1304,6 +1405,57 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
                 temp_gc[sel_user] = {"email": g_email, "password": g_pass}
                 db["garmin_creds"] = temp_gc
                 st.success("Zapisano dane. Od teraz możesz wysyłać treningi prosto z kalendarza!")
+                
+    with tab6:
+        st.markdown(f"### 📋 Profil Startowy (Ankieta): {sel_user}")
+        info = db["zawodnicy_info"].get(sel_user, {})
+        
+        if info and info.get("onboarded"):
+            st.markdown(f"<span style='color:#00E5FF; font-weight:bold;'>Data wypełnienia:</span> {info.get('data_wypelnienia')}", unsafe_allow_html=True)
+            st.markdown("---")
+            
+            c_p1, c_p2, c_p3 = st.columns(3)
+            c_p1.markdown(f"**Wzrost:** {info.get('wzrost')} cm")
+            c_p2.markdown(f"**Waga:** {info.get('waga')} kg")
+            c_p3.markdown(f"**Tętno spoczynkowe:** {info.get('hr_rest')} BPM")
+            
+            st.markdown("#### Zdrowie i Urazy")
+            choroby = info.get("choroby", {})
+            st.write(f"- Cukrzyca: {'✅' if choroby.get('cukrzyca') else '❌'}")
+            st.write(f"- Astma: {'✅' if choroby.get('astma') else '❌'}")
+            st.write(f"- Choroby serca: {'✅' if choroby.get('serce') else '❌'}")
+            st.write(f"- Problemy z kręgosłupem/stawami: {'✅' if choroby.get('plecy') else '❌'}")
+            st.markdown(f"**Urazy/Kontuzje:** {info.get('urazy', 'Brak')}")
+            
+            st.markdown("#### Styl życia")
+            st.write(f"**Praca:** {info.get('praca')} | **Średni sen:** {info.get('sen')} h")
+            
+            st.markdown("#### Harmonogram dostępności (godziny/dzień)")
+            ct = info.get("czas_trening", {})
+            st.write(f"PN: {ct.get('PN')}h | WT: {ct.get('WT')}h | ŚR: {ct.get('SR')}h | CZ: {ct.get('CZ')}h | PT: {ct.get('PT')}h | SO: {ct.get('SO')}h | ND: {ct.get('ND')}h")
+            
+            st.markdown("#### Cele i Doświadczenie")
+            st.write(f"**Staż w sportach:** {info.get('lata_sport')} lat")
+            st.write(f"**Cel główny:** {info.get('cel_glowny')}")
+            st.write(f"**Główne zawody (Kategoria A):** {info.get('zawody_a')}")
+            st.write(f"**Najsłabsze strony:** {info.get('slabe_strony')}")
+            
+            st.markdown("#### Dostępny Sprzęt")
+            sprzet = info.get("sprzet", {})
+            st.write(f"- Basen/Wody otwarte: {'✅' if sprzet.get('basen') else '❌'}")
+            st.write(f"- Siłownia: {'✅' if sprzet.get('silownia') else '❌'}")
+            st.write(f"- Trenażer Smart: {'✅' if sprzet.get('trenazer') else '❌'}")
+            st.write(f"- Pomiar mocy: {'✅' if sprzet.get('pomiar_mocy') else '❌'}")
+            
+            st.markdown("#### Profil Psychologiczny (1-5)")
+            psy = info.get("psychologia", {})
+            st.write(f"- Odporność na ból: **{psy.get('bol')}/5**")
+            st.write(f"- Koncentracja w stresie: **{psy.get('stres')}/5**")
+            st.write(f"- Dyscyplina treningowa: **{psy.get('dyscyplina')}/5**")
+            st.write(f"- Zdolność do odpoczynku: **{psy.get('odpoczynek')}/5**")
+
+        else:
+            st.info("Ten zawodnik nie wypełnił jeszcze ankiety startowej.")
 
 # --- 5. RAPORTY PDF ---
 elif menu == tr("Raporty"):
