@@ -47,7 +47,7 @@ class MongoDBWrapper:
     def __contains__(self, key):
         return self.collection.count_documents({"_id": key}, limit=1) > 0
 
-# Inicjalizacja profesjonalnej bazy w chmurze!
+# Inicjalizacja profesjonalnej bazy w chmurze
 mongo_client = get_database_client()
 db = MongoDBWrapper(mongo_client)
 
@@ -162,13 +162,21 @@ def inject_custom_css():
 inject_custom_css()
 
 # ==========================================
-# 2. STRUKTURA BAZY I UŻYTKOWNICY
+# 2. DYNAMICZNA STRUKTURA UŻYTKOWNIKÓW 
 # ==========================================
-ZAWODNICY = ["Jan Kowalski", "Anna Nowak", "Piotr Triathlonista"]
-USERS = {"admin": "trener123", "Jan Kowalski": "jan123", "Anna Nowak": "anna123", "Piotr Triathlonista": "piotr123"}
 KOLORY_SPORT = {"Pływanie": "#2979FF", "Rower": "#FF1744", "Bieganie": "#00E676", "Siłownia": "#9E9E9E", "Inne": "#FF9100"}
 KOLORY_BLOKOW = {"Rozgrzewka": "#558B2F", "Interwał": "#D32F2F", "Przerwa": "#1976D2", "Rozjazd": "#616161"}
 ZONE_COLORS = ["#9E9E9E", "#2196F3", "#4CAF50", "#FFC107", "#FF5722", "#D50000", "#880E4F"]
+
+# Inicjalizacja tabel z użytkownikami w MongoDB
+if "users_db" not in db: 
+    # Tworzymy domyślnego admina, jeśli baza jest pusta
+    db["users_db"] = {"admin": {"password": "trener123", "role": "coach"}}
+if "zawodnicy_list" not in db:
+    db["zawodnicy_list"] = []
+
+# Pobieramy dynamiczną listę z chmury
+ZAWODNICY = db.get("zawodnicy_list", [])
 
 for key in ["treningi", "strefy", "wyscigi", "biblioteka", "fizjologia", "power_profile", "run_records", "waga", "chat", "plany", "garmin_creds", "zawodnicy_info"]:
     if key not in db: db[key] = {} if key in ["strefy", "garmin_creds", "zawodnicy_info"] else []
@@ -180,7 +188,12 @@ if "session_treningi" not in st.session_state: st.session_state.session_treningi
 # ==========================================
 # 3. FUNKCJE POMOCNICZE I ALGORYTMY
 # ==========================================
-def check_login(u, p): return True if u in USERS and USERS[u] == p else False
+def check_login(u, p):
+    users = db.get("users_db", {})
+    if u in users and users[u]["password"] == p:
+        return True, users[u]["role"]
+    return False, None
+
 def format_czas(m):
     if m is None or m == 0: return "0h 00m"
     h, m = divmod(int(m), 60); return f"{h}h {m:02d}m"
@@ -413,7 +426,6 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
         if not a_id or a_id in existing_ids:
             continue
             
-        # Zaciągamy z API bezpieczne dane bazowe
         garmin_type = act.get('activityType', {}).get('typeKey', '')
         if "run" in garmin_type: sport = "Bieganie"
         elif "cycling" in garmin_type: sport = "Rower"
@@ -886,7 +898,7 @@ def render_onboarding_view(zawodnik):
             st.rerun()
 
 # ==========================================
-# 4. LOGOWANIE
+# 4. LOGOWANIE I REJESTRACJA
 # ==========================================
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 
@@ -897,15 +909,50 @@ if not st.session_state.logged_in:
 
     c1, c2, c3 = st.columns([1, 1.2, 1])
     with c2:
-        st.markdown("<div style='height: 10vh;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height: 5vh;'></div>", unsafe_allow_html=True)
         st.markdown("""<div class="login-header"><h1 class="login-title">ENDURA IQ</h1><p class="login-subtitle">Science-Based Coaching Platform</p></div>""", unsafe_allow_html=True)
-        st.markdown(f"<h4 style='text-align: center; color: #8BA1B8;'>{tr('Zaloguj się')}</h4>", unsafe_allow_html=True)
-        u = st.text_input(tr("Użytkownik"), placeholder="admin / Jan Kowalski")
-        p = st.text_input(tr("Hasło"), type="password", placeholder="••••••••")
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button(tr("Zaloguj")):
-            if check_login(u, p): st.session_state.logged_in = True; st.session_state.username = u; st.session_state.role = "coach" if u=="admin" else "athlete"; st.rerun()
-            else: st.error(tr("Nieprawidłowy login lub hasło."))
+        
+        tab_log, tab_reg = st.tabs(["🔒 Logowanie", "✨ Rejestracja"])
+        
+        with tab_log:
+            u = st.text_input(tr("Użytkownik"), placeholder="admin / Twój Login", key="log_u")
+            p = st.text_input(tr("Hasło"), type="password", placeholder="••••••••", key="log_p")
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button(tr("Zaloguj")):
+                is_valid, rola = check_login(u, p)
+                if is_valid: 
+                    st.session_state.logged_in = True
+                    st.session_state.username = u
+                    st.session_state.role = rola
+                    st.rerun()
+                else: 
+                    st.error(tr("Nieprawidłowy login lub hasło."))
+                    
+        with tab_reg:
+            st.markdown("<span style='color:#8BA1B8; font-size: 0.9em;'>Dołącz do Endura IQ i rozpocznij swoją profesjonalną drogę.</span>", unsafe_allow_html=True)
+            reg_name = st.text_input("Imię i Nazwisko (to będzie Twój login)")
+            reg_pass = st.text_input("Hasło", type="password")
+            
+            if st.button("Utwórz konto 🚀"):
+                users = db.get("users_db", {})
+                if reg_name in users:
+                    st.error("Użytkownik o takim imieniu i nazwisku już istnieje. Przejdź do logowania.")
+                elif len(reg_name) < 3 or len(reg_pass) < 4:
+                    st.error("Imię i nazwisko oraz hasło są za krótkie!")
+                else:
+                    # Zapis nowego użytkownika do bazy logowania
+                    users[reg_name] = {"password": reg_pass, "role": "athlete"}
+                    db["users_db"] = users
+                    
+                    # Dodanie go do globalnej listy zawodników, żeby trener go widział
+                    zaw_list = db.get("zawodnicy_list", [])
+                    if reg_name not in zaw_list:
+                        zaw_list.append(reg_name)
+                        db["zawodnicy_list"] = zaw_list
+                        
+                    st.success("Konto utworzone! Możesz się teraz zalogować w zakładce obok.")
+                    time.sleep(2)
+                    st.rerun()
     st.stop()
 
 # ==========================================
@@ -1245,6 +1292,7 @@ elif menu == tr("Kalendarz"):
                         render_analysis_dashboard(t_row.to_dict(), get_user_zones(target, t_row['dyscyplina']))
         else:
             st.info(tr("Brak wykonanych aktywności."))
+
 
 # --- 3. DASHBOARD ---
 elif menu == tr("Dashboard"):
