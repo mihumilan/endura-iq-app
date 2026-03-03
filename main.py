@@ -119,7 +119,8 @@ TRANSLATIONS = {
         "Tworzenie Planu (Makro/Mikrocykl)": "Plan Creation (Macro/Microcycle)", "Dzień (np. 1 = start, 2 = kolejny dzień)": "Day (e.g., 1 = start, 2 = next day)",
         "Dodaj Trening do Planu": "Add Workout to Plan", "Zapisz Plan": "Save Plan", "Nazwa Planu (np. 4 tygodnie Baza)": "Plan Name (e.g., 4-week Base)",
         "Najpierw stwórz pojedyncze treningi (szablony) w zakładce Kreator.": "First, create individual workouts (templates) in the Builder tab.",
-        "Ocena Treningu (RPE i Samopoczucie)": "Workout Rating (RPE & Feeling)"
+        "Ocena Treningu (RPE i Samopoczucie)": "Workout Rating (RPE & Feeling)",
+        "Szablon / Fragment": "Template / Fragment"
     }
 }
 
@@ -386,7 +387,6 @@ def get_next_race(zawodnik):
     future_races.sort(key=lambda x: x[1])
     return future_races[0]
 
-# --- NOWOŚĆ: INTELIGENTNE TARGETY DO ZEGARKA GARMIN ---
 def send_workout_to_garmin_connect(email, password, workout_data):
     import garminconnect
     client = garminconnect.Garmin(email, password)
@@ -431,7 +431,6 @@ def send_workout_to_garmin_connect(email, password, workout_data):
         elif "Tempo" in tryb and v1 > 0 and v2 > 0:
             t_type_id = 6
             t_type_key = "pace.custom"
-            # Zegarek Garmin oczekuje tempa w metrach na sekundę (m/s)
             speed1 = 1000.0 / (v1 * 60.0)
             speed2 = 1000.0 / (v2 * 60.0)
             t_val1 = round(min(speed1, speed2), 3)
@@ -1682,12 +1681,37 @@ elif menu == tr("Strefy"):
 elif menu == tr("Kreator"):
     st.title(tr("Kreator")); sport_creator = st.selectbox(tr("Dyscyplina"), ["Rower", "Bieganie", "Pływanie"], format_func=tr)
     c1, c2 = st.columns([1, 2]); 
+    
     if 'pro_steps' not in st.session_state: st.session_state['pro_steps'] = []
+    if 'loaded_template_name' not in st.session_state: st.session_state['loaded_template_name'] = ""
+    
     with c1:
         opts = ["-- Własny --"] + [s.get('nazwa','Bez nazwy') for s in db.get("biblioteka", [])]
-        load = st.selectbox(tr("Szablon"), opts, format_func=tr)
-        if load != "-- Własny --" and st.button(tr("Załaduj")): st.session_state['pro_steps'] = list(next((x for x in db["biblioteka"] if x['nazwa']==load), None)['kroki']); st.rerun()
+        load = st.selectbox(tr("Szablon / Fragment"), opts, format_func=tr)
+        
+        if load != "-- Własny --":
+            col_l1, col_l2, col_l3 = st.columns(3)
+            if col_l1.button("🔄 Zastąp"): 
+                tmpl = next((x for x in db["biblioteka"] if x['nazwa']==load), None)
+                if tmpl:
+                    st.session_state['pro_steps'] = list(tmpl['kroki'])
+                    st.session_state['loaded_template_name'] = tmpl['nazwa']
+                    st.rerun()
+            if col_l2.button("➕ Doklej"):
+                tmpl = next((x for x in db["biblioteka"] if x['nazwa']==load), None)
+                if tmpl:
+                    st.session_state['pro_steps'].extend(list(tmpl['kroki']))
+                    st.rerun()
+            if col_l3.button("🗑️ Usuń"):
+                db["biblioteka"] = [x for x in db.get("biblioteka", []) if x['nazwa'] != load]
+                if st.session_state['loaded_template_name'] == load:
+                    st.session_state['loaded_template_name'] = ""
+                st.success("Usunięto!")
+                time.sleep(1)
+                st.rerun()
+                
         st.markdown("---")
+        
         tab_single, tab_set = st.tabs([tr("Pojedynczy Krok"), tr("Seria Interwałów")])
         with tab_single:
             typ = st.selectbox(tr("Typ"), ["Rozgrzewka", "Interwał", "Przerwa", "Rozjazd"], format_func=tr)
@@ -1738,9 +1762,14 @@ elif menu == tr("Kreator"):
                     if r_is_dist: r_sec = int(r_v_dist * ((rv1+rv2)/2 if r_mode=="Tempo" and rv1>0 else (5.0 if sport_creator=="Bieganie" else 2.0)) * 60)
                     st.session_state['pro_steps'].append({"typ": "Przerwa", "tryb": r_mode, "val_min": rv1, "val_max": rv2, "is_distance": r_is_dist, "czas_total_sec": r_sec, "dystans_km": r_v_dist})
                 st.rerun()
+                
         if st.session_state['pro_steps']:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button(tr("Wyczyść Kreator")): st.session_state['pro_steps'] = []; st.rerun()
+            if st.button(tr("Wyczyść Kreator")): 
+                st.session_state['pro_steps'] = []
+                st.session_state['loaded_template_name'] = ""
+                st.rerun()
+                
     with c2:
         if st.session_state['pro_steps']:
             fig = go.Figure(); ct=0
@@ -1756,11 +1785,26 @@ elif menu == tr("Kreator"):
                 ct+=dur
             fig.update_layout(template="plotly_dark", showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', yaxis=dict(showticklabels=False))
             st.plotly_chart(fig, use_container_width=True)
+            
             with st.form("sv"): 
-                n=st.text_input(tr("Nazwa")); 
-                if st.form_submit_button(tr("Zapisz")): 
-                    db["biblioteka"] = list(db.get("biblioteka", [])) + [{"nazwa":n, "kroki":st.session_state['pro_steps'], "dyscyplina":sport_creator}]
-                    st.success(tr("Dodano!")); st.session_state['pro_steps'] = []; st.rerun()
+                n = st.text_input(tr("Nazwa"), value=st.session_state['loaded_template_name'])
+                if st.form_submit_button("💾 Zapisz / Aktualizuj"): 
+                    if n:
+                        lib = list(db.get("biblioteka", []))
+                        existing_idx = next((i for i, x in enumerate(lib) if x['nazwa'] == n), -1)
+                        if existing_idx >= 0:
+                            lib[existing_idx] = {"nazwa": n, "kroki": st.session_state['pro_steps'], "dyscyplina": sport_creator}
+                            msg = "Zaktualizowano istniejący szablon!"
+                        else:
+                            lib.append({"nazwa": n, "kroki": st.session_state['pro_steps'], "dyscyplina": sport_creator})
+                            msg = "Zapisano nowy szablon!"
+                        
+                        db["biblioteka"] = lib
+                        st.success(msg)
+                        st.session_state['pro_steps'] = []
+                        st.session_state['loaded_template_name'] = ""
+                        time.sleep(1)
+                        st.rerun()
 
 # --- 8. BIBLIOTEKA PLANÓW ---
 elif menu == tr("Plany"):
