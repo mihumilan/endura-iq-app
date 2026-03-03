@@ -155,6 +155,30 @@ def inject_custom_css():
         tbody tr:nth-of-type(even) { background-color: #11151C; }
         tbody tr:nth-of-type(odd) { background-color: #161B22; }
         #MainMenu {visibility: hidden;} footer {visibility: hidden;}
+        
+        /* --------------------------------- */
+        /* EKSKLUZYWNY WYGLĄD KALENDARZA TP  */
+        /* --------------------------------- */
+        .fc { font-family: 'Inter', sans-serif !important; background: #0A0D12; border-radius: 12px; padding: 10px; border: 1px solid #1F2735; }
+        .fc-theme-standard td, .fc-theme-standard th { border-color: #1F2735 !important; }
+        .fc-col-header-cell { padding: 12px 0; background-color: #11151C; color: #8BA1B8; text-transform: uppercase; font-size: 0.85em; letter-spacing: 1.5px; }
+        .fc-daygrid-day-number { color: #E2E8F0; font-weight: 800; padding: 8px !important; }
+        .fc-day-today { background-color: rgba(0, 229, 255, 0.05) !important; }
+        .fc .fc-toolbar-title { font-weight: 900; color: #00E5FF; text-transform: uppercase; letter-spacing: 1px; }
+        .fc .fc-button-primary { background-color: #11151C !important; border: 1px solid #1F2735 !important; color: #8BA1B8 !important; border-radius: 6px !important; transition: all 0.3s ease !important; text-transform: uppercase; font-size: 0.8em; font-weight: 600; }
+        .fc .fc-button-primary:hover, .fc .fc-button-primary:not(:disabled):active, .fc .fc-button-primary:not(:disabled).fc-button-active { background-color: #00E5FF !important; color: #000 !important; border-color: #00E5FF !important; }
+        
+        .fc-daygrid-event { border: none !important; border-radius: 4px !important; padding: 4px 6px !important; margin: 3px 4px !important; font-size: 0.85em !important; font-weight: 600 !important; transition: transform 0.2s ease, box-shadow 0.2s ease !important; cursor: pointer; }
+        .fc-daygrid-event:hover { transform: scale(1.02) translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 10; }
+        
+        .planned-workout { background: linear-gradient(145deg, #1A202C, #11151C) !important; border: 1px dashed #00E5FF !important; color: #00E5FF !important; }
+        .completed-workout-green { background: linear-gradient(90deg, rgba(0,200,83,0.15) 0%, rgba(0,200,83,0) 100%) !important; border-left: 3px solid #00C853 !important; color: #00C853 !important; }
+        .completed-workout-yellow { background: linear-gradient(90deg, rgba(255,214,0,0.15) 0%, rgba(255,214,0,0) 100%) !important; border-left: 3px solid #FFD600 !important; color: #FFD600 !important; }
+        .completed-workout-red { background: linear-gradient(90deg, rgba(213,0,0,0.15) 0%, rgba(213,0,0,0) 100%) !important; border-left: 3px solid #D50000 !important; color: #D50000 !important; }
+        
+        .day-note-event { background: none !important; border: none !important; color: #FFD700 !important; font-style: italic; font-weight: 400 !important; text-align: left; padding: 0 4px !important; margin-top: -5px !important; opacity: 0.8;}
+        .race-event { background: linear-gradient(90deg, rgba(255,215,0,0.2) 0%, rgba(255,215,0,0.05) 100%) !important; border-left: 3px solid #FFD700 !important; color: #FFD700 !important; font-weight: 800 !important; text-transform: uppercase; }
+        .weight-event { background: rgba(255,255,255,0.05) !important; color: #8BA1B8 !important; border-radius: 20px !important; padding: 2px 8px !important; display: inline-block !important; border: 1px solid #1F2735 !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -174,7 +198,8 @@ if "zawodnicy_list" not in db or not isinstance(db.get("zawodnicy_list"), list):
 
 ZAWODNICY = db.get("zawodnicy_list", [])
 
-for key in ["treningi", "strefy", "wyscigi", "biblioteka", "fizjologia", "power_profile", "run_records", "waga", "chat", "plany", "garmin_creds", "zawodnicy_info"]:
+# NOWOŚĆ W BAZIE DANYCH: Zbiór notatek/komentarzy do poszczególnych dni ("day_notes")
+for key in ["treningi", "strefy", "wyscigi", "biblioteka", "fizjologia", "power_profile", "run_records", "waga", "chat", "plany", "garmin_creds", "zawodnicy_info", "day_notes"]:
     if key not in db: db[key] = {} if key in ["strefy", "garmin_creds", "zawodnicy_info"] else []
 if isinstance(db["strefy"], list): db["strefy"] = {}
 if isinstance(db["garmin_creds"], list): db["garmin_creds"] = {}
@@ -224,7 +249,6 @@ def calculate_compliance(df):
     t = past[~past['wykonany']]['czas'].sum() + past[past['wykonany']]['czas'].sum()
     return int((past[past['wykonany']]['czas'].sum() / t) * 100) if t > 0 else 0
 
-# --- NAPRAWIONA FUNKCJA OBLICZANIA STREF ---
 def calculate_time_in_zones_custom(stream, zone_defs, total_time_mins):
     if not stream or not zone_defs: return []
     zs = [{"label": str(z.get("Strefa", "")), "max": float(z.get("Max", 0)), "count": 0} for z in zone_defs]
@@ -512,7 +536,7 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
             "tss": tss_val,
             "avg_power": parsed.get('avg_power', 0),
             "wykonany": True,
-            "komentarz": "",
+            "komentarz": "Trening pobrany z Garmin Connect.",
             "rpe": 5, 
             "feeling": "🙂", 
             "streams": parsed.get('streams'),
@@ -535,6 +559,68 @@ def is_valid_stream(s):
                 if float(x) > 0: return True
             except: pass
     return False
+
+# --- NOWOŚĆ: ZMODERNIZOWANY WIDOK KALENDARZA (STYL TRAININGPEAKS) ---
+def przygotuj_kalendarz(zawodnik):
+    events = []; df = get_df(zawodnik if zawodnik != tr("Wszyscy") else None)
+    for idx, t in df.iterrows():
+        # Ustawianie piktogramów treningów
+        ikona = "🏃" if t['dyscyplina'] == "Bieganie" else "🚴" if t['dyscyplina'] == "Rower" else "🏊" if t['dyscyplina'] == "Pływanie" else "🏋️"
+        
+        if t['wykonany']:
+            # Sprawdzanie wykonania względem planu (Kolory TP)
+            if t.get('plan_czas', 0) > 0:
+                pct = (t['czas'] / t['plan_czas']) * 100
+                if 80 <= pct <= 120: 
+                    c_class = "completed-workout-green" 
+                elif 60 <= pct < 80 or 120 < pct <= 150: 
+                    c_class = "completed-workout-yellow" 
+                else: 
+                    c_class = "completed-workout-red" 
+            else:
+                c_class = "completed-workout-green" # Trening zrobiony bez planu
+                
+            title_text = f"{ikona} {t['dystans']}km / {t['czas']}m" if t.get('dystans') else f"{ikona} {t['czas']}m"
+            events.append({
+                "title": title_text, 
+                "start": str(t['data']), 
+                "className": c_class, 
+                "allDay": True, 
+                "extendedProps": {"type": "trening", "data_str": str(t['data']), "dyscyplina": t['dyscyplina'], "tytul": t['tytul']}
+            })
+        else:
+            # Planowane treningi (Dashed / Neon)
+            title_text = f"{ikona} [PLAN] {t['tytul']}"
+            events.append({
+                "title": title_text, 
+                "start": str(t['data']), 
+                "className": "planned-workout", 
+                "allDay": True, 
+                "extendedProps": {"type": "trening", "data_str": str(t['data']), "dyscyplina": t['dyscyplina'], "tytul": t['tytul']}
+            })
+
+    # Waga Zawodnika
+    waga_data = list(db.get("waga", [])); wyscigi_data = list(db.get("wyscigi", []))
+    if zawodnik and zawodnik != tr("Wszyscy"): 
+        waga_data = [w for w in waga_data if w['zawodnik'] == zawodnik]
+        wyscigi_data = [r for r in wyscigi_data if r['zawodnik'] == zawodnik]
+        
+    for w in waga_data: 
+        events.append({"title": f"⚖️ {w['waga']} kg", "start": w['data'], "className": "weight-event", "allDay": True, "extendedProps": {"type": "waga", "data_str": w['data'], "waga": w['waga']}})
+    
+    # Wyścigi (Złote)
+    for r in wyscigi_data: 
+        events.append({"title": f"🏆 {r['nazwa']}", "start": r['data'], "className": "race-event", "allDay": True})
+        
+    # Komentarze do danego Dnia (Pinezki)
+    notes_data = list(db.get("day_notes", []))
+    if zawodnik and zawodnik != tr("Wszyscy"):
+        notes_data = [n for n in notes_data if n['zawodnik'] == zawodnik]
+    for n in notes_data:
+        # Komentarze pokazują się jako mały pochyły tekst na samej górze dnia
+        events.append({"title": f"💬 {n['note']}", "start": n['data'], "className": "day-note-event", "allDay": True})
+
+    return events
 
 class PDFReport(FPDF):
     def header(self): self.set_font('Arial', 'B', 15); self.set_text_color(0, 229, 255); self.cell(0, 10, 'TriCoach Pro | Report', 0, 1, 'C'); self.ln(5)
@@ -753,7 +839,6 @@ def render_analysis_dashboard(t, user_settings):
         fig.update_layout(template="plotly_dark", height=500, showlegend=False, margin=dict(l=50,r=10,t=30,b=10), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig, use_container_width=True)
 
-        # NAPRAWIONA SEKCJA CZASU W STREFACH (Brak pustych osi)
         if has_pwr or has_hr:
             st.markdown(f"### 📊 {tr('Czas w strefach')}")
             cz1, cz2 = st.columns(2)
@@ -763,7 +848,6 @@ def render_analysis_dashboard(t, user_settings):
                 if z_pwr:
                     df_zp = pd.DataFrame(z_pwr)
                     fig_zp = px.bar(df_zp, x='mins', y='label', orientation='h', title=tr("Moc"), text=df_zp['mins'].apply(lambda x: f"{x} min"), color='label', color_discrete_sequence=ZONE_COLORS)
-                    # Gwarancja rozpoczęcia osi od 0
                     m_val = df_zp['mins'].max()
                     max_x = float(m_val) * 1.1 if pd.notna(m_val) and float(m_val) > 0 else 1.0
                     fig_zp.update_layout(yaxis={'categoryorder':'category descending'}, template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
@@ -804,7 +888,6 @@ def render_analysis_dashboard(t, user_settings):
                 add_comment_to_workout(t['zawodnik'], t['data'], t['tytul'], t['dyscyplina'], st.session_state.username, new_comment)
                 st.rerun()
 
-# --- MODUŁ WYŚWIETLANIA TRENINGU ---
 def render_workout_expander(row, idx, ja, is_coach=False):
     t_dict = row.to_dict()
     u_strefy_disc = get_user_zones(t_dict['zawodnik'], t_dict['dyscyplina'])
@@ -826,7 +909,6 @@ def render_workout_expander(row, idx, ja, is_coach=False):
             k4.markdown(f"<div class='metric-card'><div class='metric-val'>{np_val} W</div><div class='metric-label'>{tr('NP (Moc)')}</div></div>", unsafe_allow_html=True)
 
             st.markdown("---")
-            # WIDOCZNY PANEL OCENY TRENINGU NA SAMYM WIERZCHU
             st.markdown(f"### 📋 {tr('Ocena Treningu (RPE i Samopoczucie)')}")
             col_rpe1, col_rpe2 = st.columns([3, 1])
             col_rpe1.markdown(f"**RPE:** {t_dict.get('rpe', 5)}/10 | **Samopoczucie:** {t_dict.get('feeling', '🙂')}")
@@ -857,7 +939,6 @@ def render_workout_expander(row, idx, ja, is_coach=False):
             if st.toggle(tr("Pełna Analiza (Wykresy i Mapa)"), key=f"tgl_{idx}_{t_dict['data']}"):
                 render_analysis_dashboard(t_dict, u_strefy_disc)
 
-# --- KREATOR ANKIETY ONBOARDINGOWEJ ---
 def render_onboarding_view(zawodnik):
     fullname = db.get("users_db", {}).get(zawodnik, {}).get("fullname", zawodnik)
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1107,7 +1188,6 @@ if menu == tr("Dodaj aktywność"):
                 f_dist = fc4.number_input(tr("Dystans (km)"), value=float(curr['dist']), disabled=is_file_mode)
                 f_tss = fc5.number_input("TSS", value=int(curr['tss']), disabled=is_file_mode)
                 
-                # Zmieniono logikę formularza - ręczne wgranie od razu ustawia RPE
                 st.markdown("---")
                 st.markdown(f"### {tr('Ocena Treningu (RPE i Samopoczucie)')}")
                 c_rpe, c_feel = st.columns(2)
@@ -1206,56 +1286,94 @@ elif menu == tr("Kalendarz"):
     with tab_kalendarz:
         col_c, col_s = st.columns([3, 1])
         with col_c:
-            with st.expander(tr("Dodaj zawody / cel")):
-                with st.form("add_race_form"):
-                    r_name = st.text_input(tr("Nazwa zawodów"), placeholder="Ironman Frankfurt")
-                    r_date = st.date_input(tr("Data zawodów"), date.today() + timedelta(days=30))
-                    if st.form_submit_button(tr("Dodaj Start")):
-                        db["wyscigi"] = list(db.get("wyscigi", [])) + [{"zawodnik": target, "nazwa": r_name, "data": str(r_date)}]
-                        st.success(tr("Dodano zawody!")); st.rerun()
-
-            if st.session_state.role == "coach":
-                with st.expander(tr("PANEL PLANOWANIA (TRENER)"), expanded=True):
-                    with st.form("plan_workout"):
-                        c1, c2 = st.columns(2)
-                        def_date = date.today()
-                        if 'cal_click_date' in st.session_state and st.session_state.cal_click_date:
-                            try: def_date = datetime.strptime(st.session_state.cal_click_date, "%Y-%m-%d").date()
-                            except: pass
-                        p_date = c1.date_input(tr("Data"), def_date)
-                        p_sport = c2.selectbox(tr("Dyscyplina"), ["Bieganie", "Rower", "Pływanie", "Siłownia"], format_func=tr)
-                        opts = ["-- Własny --"] + [s['nazwa'] for s in db.get("biblioteka", [])]
-                        p_temp = st.selectbox(tr("Wczytaj Szablon"), opts, format_func=tr)
-                        def_title = f"{tr(p_sport)}"; def_time = 60; def_tss = 50; p_steps = []
-                        if p_temp != "-- Własny --":
-                            tmpl = next((x for x in db["biblioteka"] if x['nazwa']==p_temp), None)
-                            if tmpl: def_title = tmpl['nazwa']; def_time = sum([k['czas_total_sec'] for k in tmpl['kroki']]) // 60; p_steps = tmpl['kroki']
-                        p_title = st.text_input(tr("Tytuł"), value=def_title)
-                        c3, c4 = st.columns(2); p_time = c3.number_input(tr("Czas (min)"), value=def_time); p_tss = c4.number_input("Plan TSS", value=def_tss)
-                        p_desc = st.text_area(tr("Instrukcje dla zawodnika"))
-                        if st.form_submit_button(tr("Dodaj do Planu")):
-                            save_data({"zawodnik": target, "dyscyplina": p_sport, "data": str(p_date), "tytul": p_title, "komentarz": p_desc, "czas": p_time, "tss": p_tss, "wykonany": False, "kroki": p_steps})
-                            st.success(tr("Zaplanowano!")); st.session_state.cal_click_date = None; st.rerun()
-
+            
+            # WIDŻET KALENDARZA STREAMLIT (STYLOWANY PRZEZ CSS)
             events = przygotuj_kalendarz(target)
-            cal = calendar(events=events, options={"initialView": "dayGridMonth", "initialDate": str(date.today()), "firstDay": 1, "selectable": True, "dateClick": True, "height": 700}, key=f'cal_view_{target}', callbacks=['dateClick', 'eventClick'])
+            cal_options = {
+                "initialView": "dayGridMonth",
+                "initialDate": str(date.today()),
+                "firstDay": 1,
+                "selectable": True,
+                "dateClick": True,
+                "height": 800,
+                "headerToolbar": {
+                    "left": "prev,next today",
+                    "center": "title",
+                    "right": "dayGridMonth,listWeek"
+                },
+                "eventDisplay": "block"
+            }
+            
+            cal = calendar(events=events, options=cal_options, key=f'cal_view_{target}', callbacks=['dateClick', 'eventClick'])
+            
             if cal.get("dateClick"):
                 selected = cal["dateClick"]["dateStr"]
-                if selected != st.session_state.get('cal_click_date'): st.session_state.cal_click_date = selected; st.rerun()
+                if selected != st.session_state.get('cal_click_date'): 
+                    st.session_state.cal_click_date = selected; st.rerun()
+                    
+            # --- SEKCJA PO KLIKNIĘCIU W DZIEŃ W KALENDARZU ---
+            if 'cal_click_date' in st.session_state and st.session_state.cal_click_date:
+                c_date = st.session_state.cal_click_date
+                st.markdown(f"### 🗓️ Podsumowanie Dnia: {c_date}")
+                
+                # Moduł notatek do dnia
+                curr_notes = [n for n in db.get("day_notes", []) if n['zawodnik'] == target and n['data'] == c_date]
+                curr_note_text = curr_notes[0]['note'] if curr_notes else ""
+                
+                with st.form(key=f"note_form_{c_date}"):
+                    st.markdown("<span style='color:#8BA1B8; font-size:0.9em;'>📌 Zostaw notatkę na ten dzień (np. ograniczony czas, wyjazd):</span>", unsafe_allow_html=True)
+                    note_input = st.text_input("Komentarz do dnia", value=curr_note_text)
+                    if st.form_submit_button("Zapisz Notatkę"):
+                        all_notes = list(db.get("day_notes", []))
+                        all_notes = [n for n in all_notes if not (n['zawodnik'] == target and n['data'] == c_date)]
+                        if note_input.strip():
+                            all_notes.append({"zawodnik": target, "data": c_date, "note": note_input})
+                        db["day_notes"] = all_notes
+                        st.success("Notatka przypięta do kalendarza!")
+                        st.rerun()
+                
+                # Dodawanie wyścigów w konkretny dzień
+                with st.expander(f"🏆 Dodaj Zawody w dniu {c_date}"):
+                    with st.form("add_race_form_click"):
+                        r_name = st.text_input(tr("Nazwa zawodów"), placeholder="Ironman Frankfurt")
+                        if st.form_submit_button(tr("Zapisz")):
+                            db["wyscigi"] = list(db.get("wyscigi", [])) + [{"zawodnik": target, "nazwa": r_name, "data": c_date}]
+                            st.success(tr("Dodano zawody!")); st.rerun()
+
+                # Narzędzia Trenera dla wybranego dnia
+                if st.session_state.role == "coach":
+                    with st.expander(f"⚡ Zaplanuj Trening (Trener) - {c_date}"):
+                        with st.form("plan_workout_click"):
+                            p_sport = st.selectbox(tr("Dyscyplina"), ["Bieganie", "Rower", "Pływanie", "Siłownia"], format_func=tr)
+                            opts = ["-- Własny --"] + [s['nazwa'] for s in db.get("biblioteka", [])]
+                            p_temp = st.selectbox(tr("Wczytaj Szablon"), opts, format_func=tr)
+                            def_title = f"{tr(p_sport)}"; def_time = 60; def_tss = 50; p_steps = []
+                            if p_temp != "-- Własny --":
+                                tmpl = next((x for x in db["biblioteka"] if x['nazwa']==p_temp), None)
+                                if tmpl: def_title = tmpl['nazwa']; def_time = sum([k['czas_total_sec'] for k in tmpl['kroki']]) // 60; p_steps = tmpl['kroki']
+                            p_title = st.text_input(tr("Tytuł"), value=def_title)
+                            c3, c4 = st.columns(2); p_time = c3.number_input(tr("Czas (min)"), value=def_time); p_tss = c4.number_input("Plan TSS", value=def_tss)
+                            p_desc = st.text_area(tr("Instrukcje dla zawodnika"))
+                            if st.form_submit_button(tr("Dodaj do Planu")):
+                                save_data({"zawodnik": target, "dyscyplina": p_sport, "data": c_date, "tytul": p_title, "komentarz": p_desc, "czas": p_time, "tss": p_tss, "wykonany": False, "kroki": p_steps})
+                                st.success(tr("Zaplanowano!")); st.session_state.cal_click_date = None; st.rerun()
+                
+                st.markdown("---")
+
+            # --- OTWIERANIE TRENINGU Z KALENDARZA ---
             if cal.get("eventClick"):
                 props = cal["eventClick"]["event"].get("extendedProps", {})
-                if props.get("type") == "waga": st.info(f"{tr('Ważenie z dnia')} {props.get('data_str')}: **{props.get('waga')} kg**")
-                else:
+                if props.get("type") == "waga": 
+                    st.info(f"{tr('Ważenie z dnia')} {props.get('data_str')}: **{props.get('waga')} kg**")
+                elif props.get("type") == "trening":
                     df_c = get_df(target); match_df = df_c[(df_c['data'].astype(str) == props.get('data_str')) & (df_c['dyscyplina'] == props.get('dyscyplina')) & (df_c['tytul'] == props.get('tytul'))]
-                    st.markdown("---")
                     if not match_df.empty: 
-                        st.subheader(f"{tr('Szczegóły:')} {props.get('tytul')}")
+                        st.subheader(f"📊 {tr('Szczegóły:')} {props.get('tytul')}")
                         t_dict = match_df.iloc[0].to_dict()
-                        
-                        # Trener nie ocenia za zawodnika (widzi po prostu analizę)
-                        st.markdown(f"**RPE:** {t_dict.get('rpe', 5)}/10 | **Samopoczucie:** {t_dict.get('feeling', '🙂')}")
-                        if t_dict.get('komentarz'):
-                            st.markdown(f"*{t_dict.get('komentarz')}*")
+                        if t_dict.get('wykonany') and st.session_state.role == "coach":
+                            st.markdown(f"**RPE:** {t_dict.get('rpe', 5)}/10 | **Samopoczucie:** {t_dict.get('feeling', '🙂')}")
+                            if t_dict.get('komentarz'):
+                                st.markdown(f"*{t_dict.get('komentarz')}*")
                         render_analysis_dashboard(t_dict, get_user_zones(target, t_dict['dyscyplina']))
                     else: st.info(tr("Nie znaleziono szczegółów. Sprawdź listę zadań."))
 
@@ -1424,7 +1542,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
         
     with tab5:
         st.markdown("### 🔵 Autoryzacja Garmin Connect")
-        st.markdown("<span style='color:#8BA1B8;'>Podaj dane logowania, aby aplikacja Endura IQ mogła automatycznie pobierać i wysyłać zaplanowane treningi do kalendarza Garmin.</span>", unsafe_allow_html=True)
+        st.markdown("<span style='color:#8BA1B8;'>Podaj dane logowania, aby aplikacja Endura IQ mogła automatycznie wysyłać zaplanowane treningi prosto do Twojego kalendarza w zegarku.</span>", unsafe_allow_html=True)
         creds = db["garmin_creds"].get(sel_user, {})
         with st.form("garmin_form"):
             g_email = st.text_input("E-mail Garmin", value=creds.get("email", ""))
@@ -1433,7 +1551,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
                 temp_gc = db["garmin_creds"]
                 temp_gc[sel_user] = {"email": g_email, "password": g_pass}
                 db["garmin_creds"] = temp_gc
-                st.success("Zapisano dane do chmury Garmina!")
+                st.success("Zapisano dane. Od teraz możesz wysyłać treningi prosto z kalendarza!")
                 
     with tab6:
         sel_user_disp = get_display_name(sel_user)
@@ -1692,4 +1810,4 @@ elif menu == tr("Plany"):
 
 # --- 9. BAZA ---
 elif menu == tr("Baza"): 
-    if st.button(tr("RESET DANYCH")): db["treningi"]=[]; db["run_records"]=[]; db["power_profile"]=[]; db["waga"]=[]; db["chat"]=[]; db["wyscigi"]=[]; db["plany"]=[]; st.session_state.session_treningi=[]; st.rerun()
+    if st.button(tr("RESET DANYCH")): db["treningi"]=[]; db["run_records"]=[]; db["power_profile"]=[]; db["waga"]=[]; db["chat"]=[]; db["wyscigi"]=[]; db["plany"]=[]; db["day_notes"]=[]; st.session_state.session_treningi=[]; st.rerun()
