@@ -246,6 +246,7 @@ def calculate_compliance(df):
     t = past[~past['wykonany']]['czas'].sum() + past[past['wykonany']]['czas'].sum()
     return int((past[past['wykonany']]['czas'].sum() / t) * 100) if t > 0 else 0
 
+# --- KULOODPORNA FUNKCJA STREF ---
 def calculate_time_in_zones_custom(stream, zone_defs, total_time_mins):
     if not stream or not zone_defs: return []
     zs = [{"label": str(z.get("Strefa", "")), "max": float(z.get("Max", 0)), "count": 0} for z in zone_defs]
@@ -649,102 +650,6 @@ def create_weekly_pdf(zawodnik, week_data, week_num, year, coach_note):
     if coach_note: pdf.ln(10); pdf.set_font('Arial', 'B', 11); pdf.set_text_color(0, 150, 0); pdf.cell(0, 10, "Coach Note:", 0, 1, 'L'); pdf.set_font('Arial', 'I', 10); pdf.set_text_color(0); pdf.multi_cell(0, 8, coach_note)
     return pdf.output(dest='S').encode('latin-1')
 
-def parse_tcx_pro(uploaded_file, athlete_all_zones):
-    res = { "dist": 0.0, "tss": 0, "time": 0, "date": date.today(), "sport": "Inne", "avg_power": 0, "streams": {"time":[],"hr":[],"watts":[],"speed":[],"cadence":[],"lat":[],"lon":[]}, "laps": [], "peak_powers": {}, "best_times": {} }
-    try:
-        tree = ET.parse(uploaded_file); root = tree.getroot(); total_s = 0.0; total_m = 0.0; raw_real_s = []; raw_dist = []
-        for elem in root.iter():
-            if "Activity" in elem.tag and "Sport" in elem.attrib:
-                s = elem.attrib["Sport"].lower()
-                if "run" in s: res["sport"]="Bieganie"
-                elif "bik" in s: res["sport"]="Rower"
-                elif "swim" in s: res["sport"]="Pływanie"
-            if elem.tag.endswith("Id"):
-                try: res["date"] = datetime.strptime(elem.text.strip()[:10], "%Y-%m-%d").date()
-                except: pass
-                
-        disc_zones = athlete_all_zones.get(res["sport"], {})
-        user_ftp = disc_zones.get("ftp", 250) if isinstance(disc_zones, dict) else 250
-        user_lthr = disc_zones.get("lthr", 170) if isinstance(disc_zones, dict) else 170
-        
-        lap_c = 1; el_s = 0; hr_s = 0; hr_c = 0; pw_s = 0; pw_c = 0; active_time = 0; start_time_dt = None
-        for lap in root.iter():
-            if lap.tag.endswith("Lap"):
-                lt=0.0; ld=0.0; lhr=None; lpw=None; lsp=None
-                for c in lap:
-                    if c.tag.endswith("TotalTimeSeconds"): lt=float(c.text); total_s+=lt
-                    if c.tag.endswith("DistanceMeters"): ld=float(c.text); total_m+=ld
-                    if c.tag.endswith("AverageHeartRateBpm"): 
-                        for v in c: lhr=int(v.text)
-                for e in lap.iter():
-                    if e.tag.endswith("AvgWatts"): lpw=int(float(e.text))
-                    if e.tag.endswith("AvgSpeed"): lsp=float(e.text)
-                is_act = (ld>0) or (lhr and lhr>90) or (lpw and lpw>50)
-                if is_act: active_time += lt
-                lr = {"type":"work" if is_act else "rest", "nr":str(lap_c) if is_act else "", "czas":format_interval_time(lt), "hr":lhr, "moc":lpw}
-                if res["sport"]=="Pływanie": lr["dystans"] = f"{int(ld)}m" if is_act else "Odpoczynek"; lr["tempo"] = format_swim_pace(lt,ld) if is_act else "-"
-                else: lr["dystans"] = f"{round(ld/1000,2)}km"; lr["tempo"] = format_pace(seconds_to_pace(lsp)) if lsp else "-"
-                res["laps"].append(lr)
-                if is_act: lap_c+=1
-                for tr_elem in lap.iter():
-                    if tr_elem.tag.endswith("Track"):
-                        for tp in tr_elem:
-                            if tp.tag.endswith("Trackpoint"):
-                                try:
-                                    th=None; tw=None; ts=None; tc=None; tla=None; tlo=None; t_dist=None; pt_dt=None
-                                    for tpc in tp.iter():
-                                        if tpc.tag.endswith("HeartRateBpm"): 
-                                            for v in tpc: th=int(v.text)
-                                        if tpc.tag.endswith("Watts"): tw=int(tpc.text)
-                                        if tpc.tag.endswith("Speed"): ts=float(tpc.text)
-                                        if tpc.tag.endswith("Cadence") or tpc.tag.endswith("RunCadence"): 
-                                            rc=int(tpc.text); tc=rc*2 if res["sport"]=="Bieganie" and 0<rc<125 else rc
-                                        if tpc.tag.endswith("LatitudeDegrees"): tla=float(tpc.text)
-                                        if tpc.tag.endswith("LongitudeDegrees"): tlo=float(tpc.text)
-                                        if tpc.tag.endswith("DistanceMeters"): t_dist=float(tpc.text)
-                                        if tpc.tag.endswith("Time"):
-                                            try: pt_dt = datetime.strptime(tpc.text.strip()[:19], "%Y-%m-%dT%H:%M:%S")
-                                            except: pass
-                                    if start_time_dt is None and pt_dt is not None: start_time_dt = pt_dt
-                                    current_real_sec = (pt_dt - start_time_dt).total_seconds() if start_time_dt and pt_dt else el_s 
-                                    res["streams"]["time"].append(current_real_sec/60); res["streams"]["hr"].append(th); res["streams"]["watts"].append(tw)
-                                    res["streams"]["speed"].append(ts); res["streams"]["cadence"].append(tc); res["streams"]["lat"].append(tla); res["streams"]["lon"].append(tlo)
-                                    raw_real_s.append(current_real_sec); raw_dist.append(t_dist)
-                                    if th: hr_s+=th; hr_c+=1
-                                    if tw: pw_s+=tw; pw_c+=1
-                                    el_s+=1
-                                except: pass
-        res["dist"] = round(total_m/1000, 2); res["time"] = int(total_s/60)
-        if res["sport"] == "Rower" and len(res["streams"]["watts"]) > 0:
-            w_series = pd.Series([w if w is not None else 0 for w in res["streams"]["watts"]])
-            for k, v in {"5s": 5, "10s": 10, "20s": 20, "1m": 60, "5m": 300, "10m": 600, "20m": 1200, "60m": 3600}.items():
-                res["peak_powers"][k] = int(w_series.rolling(v).mean().max()) if len(w_series) >= v else 0
-        if res["sport"] == "Bieganie" and len(raw_real_s) > 0 and len(raw_dist) > 0:
-            clean_dist = []; cumulative_d = 0; last_d = 0
-            for d in raw_dist:
-                if d is not None:
-                    if d < last_d: cumulative_d += last_d
-                    last_d = d
-                clean_dist.append(cumulative_d + last_d)
-            for k, target_dist in {"400m": 400, "1km": 1000, "5km": 5000, "10km": 10000, "Półmaraton": 21097, "Maraton": 42195}.items():
-                min_t = float('inf'); left = 0
-                for right in range(len(raw_real_s)):
-                    while left < right and clean_dist[right] - clean_dist[left] >= target_dist:
-                        d_diff = clean_dist[right] - clean_dist[left]; t_diff = raw_real_s[right] - raw_real_s[left]
-                        if t_diff > 0 and d_diff > 0 and (d_diff / t_diff) < 8.5: 
-                            exact_t = t_diff * (target_dist / d_diff)
-                            if exact_t < min_t: min_t = exact_t
-                        left += 1
-                if min_t != float('inf'): res["best_times"][k] = int(min_t)
-        if pw_c>0 and user_ftp>0: res["avg_power"] = int(pw_s/pw_c); np_val = calculate_normalized_power(res["streams"]["watts"]); res["tss"] = int(((active_time * (np_val if np_val>0 else res["avg_power"]) * ((np_val if np_val>0 else res["avg_power"])/user_ftp)) / (user_ftp*3600))*100)
-        elif hr_c>0 and user_lthr>0: res["tss"] = int((active_time/3600)*100*((hr_s/hr_c/user_lthr)**3.5))
-        if res["tss"]==0 and active_time>0: res["tss"] = int((active_time/3600)*60)
-        if len(res["streams"]["time"]) > 600:
-            step = len(res["streams"]["time"]) // 600
-            for key in res["streams"]: res["streams"][key] = res["streams"][key][::step]
-        return res
-    except Exception: return res
-
 def render_tp_weekly_list(df):
     if df.empty: 
         st.markdown(f"<div class='tp-summary-card'>{tr('Brak danych')}</div>", unsafe_allow_html=True); return
@@ -858,13 +763,16 @@ def render_analysis_dashboard(t, user_settings):
                 if z_pwr:
                     df_zp = pd.DataFrame(z_pwr)
                     fig_zp = go.Figure(go.Bar(
-                        x=df_zp['mins'], y=df_zp['label'], orientation='h',
-                        text=df_zp['mins'].apply(lambda x: f"{x} min"), textposition='auto',
+                        x=df_zp['mins'].astype(float), 
+                        y=df_zp['label'].astype(str), 
+                        orientation='h',
+                        text=df_zp['mins'].apply(lambda x: f"{x} min"), 
+                        textposition='auto',
                         marker_color=ZONE_COLORS[:len(df_zp)]
                     ))
                     max_x_pwr = float(df_zp['mins'].max() * 1.1) if not df_zp.empty else 1.0
                     if max_x_pwr <= 0: max_x_pwr = 1.0
-                    fig_zp.update_layout(title=tr("Moc"), yaxis={'categoryorder':'category descending'}, template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                    fig_zp.update_layout(title=tr("Moc"), yaxis=dict(autorange="reversed"), template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                     fig_zp.update_xaxes(range=[0, max_x_pwr])
                     cz1.plotly_chart(fig_zp, use_container_width=True)
                     
@@ -873,13 +781,16 @@ def render_analysis_dashboard(t, user_settings):
                 if z_hr:
                     df_zh = pd.DataFrame(z_hr)
                     fig_zh = go.Figure(go.Bar(
-                        x=df_zh['mins'], y=df_zh['label'], orientation='h',
-                        text=df_zh['mins'].apply(lambda x: f"{x} min"), textposition='auto',
+                        x=df_zh['mins'].astype(float), 
+                        y=df_zh['label'].astype(str), 
+                        orientation='h',
+                        text=df_zh['mins'].apply(lambda x: f"{x} min"), 
+                        textposition='auto',
                         marker_color=ZONE_COLORS[:len(df_zh)]
                     ))
                     max_x_hr = float(df_zh['mins'].max() * 1.1) if not df_zh.empty else 1.0
                     if max_x_hr <= 0: max_x_hr = 1.0
-                    fig_zh.update_layout(title=tr("Tętno"), yaxis={'categoryorder':'category descending'}, template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                    fig_zh.update_layout(title=tr("Tętno"), yaxis=dict(autorange="reversed"), template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                     fig_zh.update_xaxes(range=[0, max_x_hr])
                     cz2.plotly_chart(fig_zh, use_container_width=True)
 
@@ -1304,14 +1215,17 @@ elif menu == tr("Kalendarz"):
     with tab_kalendarz:
         col_c, col_s = st.columns([3, 1])
         with col_c:
-            
             events = przygotuj_kalendarz(target)
+            
+            # FOOLPROOF ROZWIĄZANIE NA KLIKANIE KALENDARZA
+            if 'cal_click_date' not in st.session_state:
+                st.session_state.cal_click_date = str(date.today())
+                
             cal_options = {
                 "initialView": "dayGridMonth",
-                "initialDate": str(date.today()),
+                "initialDate": st.session_state.cal_click_date,
                 "firstDay": 1,
                 "selectable": True,
-                "dateClick": True,
                 "height": 800,
                 "headerToolbar": {
                     "left": "prev,next today",
@@ -1321,69 +1235,82 @@ elif menu == tr("Kalendarz"):
                 "eventDisplay": "block"
             }
             
-            cal = calendar(events=events, options=cal_options, key=f'cal_view_{target}', callbacks=['dateClick', 'eventClick'])
+            cal = calendar(events=events, options=cal_options, key=f'cal_view_{target}', callbacks=['dateClick', 'eventClick', 'select'])
             
-            if cal.get("dateClick"):
-                selected = cal["dateClick"]["dateStr"]
-                if selected != st.session_state.get('cal_click_date'): 
-                    st.session_state.cal_click_date = selected; st.rerun()
-                    
-            if 'cal_click_date' in st.session_state and st.session_state.cal_click_date:
-                c_date = st.session_state.cal_click_date
-                
-                st.markdown(f"### 🗓️ Panel Dnia: {c_date}")
-                
-                if st.button("❌ Zamknij panel dnia"):
-                    st.session_state.cal_click_date = None
-                    st.rerun()
-                
-                curr_notes = [n for n in db.get("day_notes", []) if n['zawodnik'] == target and n['data'] == c_date]
-                curr_note_text = curr_notes[0]['note'] if curr_notes else ""
-                
-                with st.form(key=f"note_form_{c_date}"):
-                    st.markdown("<span style='color:#8BA1B8; font-size:0.9em;'>📌 Zostaw notatkę na ten dzień (np. ograniczony czas, wyjazd):</span>", unsafe_allow_html=True)
-                    note_input = st.text_input("Komentarz do dnia", value=curr_note_text)
-                    if st.form_submit_button("Zapisz Notatkę"):
-                        all_notes = list(db.get("day_notes", []))
-                        all_notes = [n for n in all_notes if not (n['zawodnik'] == target and n['data'] == c_date)]
-                        if note_input.strip():
-                            all_notes.append({"zawodnik": target, "data": c_date, "note": note_input})
-                        db["day_notes"] = all_notes
-                        st.session_state.cal_click_date = None
+            # Nasłuchwianie JavaScriptu
+            if cal and isinstance(cal, dict):
+                if cal.get("callback") == "dateClick":
+                    clicked_date = cal.get("dateClick", {}).get("dateStr")
+                    if clicked_date and clicked_date != st.session_state.get('cal_click_date'):
+                        st.session_state.cal_click_date = clicked_date
                         st.rerun()
+                elif cal.get("callback") == "select":
+                    clicked_date = cal.get("select", {}).get("startStr")
+                    if clicked_date and clicked_date[:10] != st.session_state.get('cal_click_date'):
+                        st.session_state.cal_click_date = clicked_date[:10]
+                        st.rerun()
+            
+            st.markdown("---")
+            st.markdown("### 🗓️ Zarządzaj Dniem")
+            
+            # Bezpieczny wybierak daty (zawsze działa, nawet jeśli skrypt kliknięcia zostanie zablokowany przez telefon)
+            try:
+                def_d = datetime.strptime(st.session_state.cal_click_date, "%Y-%m-%d").date()
+            except:
+                def_d = date.today()
                 
-                with st.expander(f"🏆 Dodaj Zawody w dniu {c_date}"):
-                    with st.form("add_race_form_click"):
-                        r_name = st.text_input(tr("Nazwa zawodów"), placeholder="Ironman Frankfurt")
-                        if st.form_submit_button(tr("Zapisz")):
-                            db["wyscigi"] = list(db.get("wyscigi", [])) + [{"zawodnik": target, "nazwa": r_name, "data": c_date}]
-                            st.success(tr("Dodano zawody!")); st.rerun()
+            c_date_obj = st.date_input("Wybierz datę (kliknij w kalendarzu u góry lub wpisz ręcznie):", value=def_d)
+            c_date = str(c_date_obj)
+            st.session_state.cal_click_date = c_date
+            
+            # Panel dnia (Notes i Planowanie)
+            curr_notes = [n for n in db.get("day_notes", []) if n['zawodnik'] == target and n['data'] == c_date]
+            curr_note_text = curr_notes[0]['note'] if curr_notes else ""
+            
+            with st.form(key=f"note_form_{c_date}"):
+                st.markdown(f"<span style='color:#8BA1B8; font-size:0.9em;'>📌 Zostaw notatkę na dzień <b>{c_date}</b> (np. ograniczony czas, wyjazd):</span>", unsafe_allow_html=True)
+                note_input = st.text_input("Komentarz do dnia", value=curr_note_text)
+                if st.form_submit_button("Zapisz Notatkę"):
+                    all_notes = list(db.get("day_notes", []))
+                    all_notes = [n for n in all_notes if not (n['zawodnik'] == target and n['data'] == c_date)]
+                    if note_input.strip():
+                        all_notes.append({"zawodnik": target, "data": c_date, "note": note_input})
+                    db["day_notes"] = all_notes
+                    st.success("Notatka przypięta do kalendarza!")
+                    st.rerun()
+            
+            with st.expander(f"🏆 Dodaj Zawody w dniu {c_date}"):
+                with st.form("add_race_form_click"):
+                    r_name = st.text_input(tr("Nazwa zawodów"), placeholder="Ironman Frankfurt")
+                    if st.form_submit_button(tr("Zapisz")):
+                        db["wyscigi"] = list(db.get("wyscigi", [])) + [{"zawodnik": target, "nazwa": r_name, "data": c_date}]
+                        st.success(tr("Dodano zawody!")); st.rerun()
 
-                if st.session_state.role == "coach":
-                    with st.expander(f"⚡ Zaplanuj Trening (Trener) - {c_date}"):
-                        with st.form("plan_workout_click"):
-                            p_sport = st.selectbox(tr("Dyscyplina"), ["Bieganie", "Rower", "Pływanie", "Siłownia"], format_func=tr)
-                            opts = ["-- Własny --"] + [s['nazwa'] for s in db.get("biblioteka", [])]
-                            p_temp = st.selectbox(tr("Wczytaj Szablon"), opts, format_func=tr)
-                            def_title = f"{tr(p_sport)}"; def_time = 60; def_tss = 50; p_steps = []
-                            if p_temp != "-- Własny --":
-                                tmpl = next((x for x in db["biblioteka"] if x['nazwa']==p_temp), None)
-                                if tmpl: def_title = tmpl['nazwa']; def_time = sum([k['czas_total_sec'] for k in tmpl['kroki']]) // 60; p_steps = tmpl['kroki']
-                            p_title = st.text_input(tr("Tytuł"), value=def_title)
-                            c3, c4 = st.columns(2); p_time = c3.number_input(tr("Czas (min)"), value=def_time); p_tss = c4.number_input("Plan TSS", value=def_tss)
-                            p_desc = st.text_area(tr("Instrukcje dla zawodnika"))
-                            if st.form_submit_button(tr("Dodaj do Planu")):
-                                save_data({"zawodnik": target, "dyscyplina": p_sport, "data": c_date, "tytul": p_title, "komentarz": p_desc, "czas": p_time, "tss": p_tss, "wykonany": False, "kroki": p_steps})
-                                st.success(tr("Zaplanowano!")); st.session_state.cal_click_date = None; st.rerun()
-                
-                st.markdown("---")
+            if st.session_state.role == "coach":
+                with st.expander(f"⚡ Zaplanuj Trening (Trener) - {c_date}"):
+                    with st.form("plan_workout_click"):
+                        p_sport = st.selectbox(tr("Dyscyplina"), ["Bieganie", "Rower", "Pływanie", "Siłownia"], format_func=tr)
+                        opts = ["-- Własny --"] + [s['nazwa'] for s in db.get("biblioteka", [])]
+                        p_temp = st.selectbox(tr("Wczytaj Szablon"), opts, format_func=tr)
+                        def_title = f"{tr(p_sport)}"; def_time = 60; def_tss = 50; p_steps = []
+                        if p_temp != "-- Własny --":
+                            tmpl = next((x for x in db["biblioteka"] if x['nazwa']==p_temp), None)
+                            if tmpl: def_title = tmpl['nazwa']; def_time = sum([k['czas_total_sec'] for k in tmpl['kroki']]) // 60; p_steps = tmpl['kroki']
+                        p_title = st.text_input(tr("Tytuł"), value=def_title)
+                        c3, c4 = st.columns(2); p_time = c3.number_input(tr("Czas (min)"), value=def_time); p_tss = c4.number_input("Plan TSS", value=def_tss)
+                        p_desc = st.text_area(tr("Instrukcje dla zawodnika"))
+                        if st.form_submit_button(tr("Dodaj do Planu")):
+                            save_data({"zawodnik": target, "dyscyplina": p_sport, "data": c_date, "tytul": p_title, "komentarz": p_desc, "czas": p_time, "tss": p_tss, "wykonany": False, "kroki": p_steps})
+                            st.success(tr("Zaplanowano!")); st.session_state.cal_click_date = None; st.rerun()
 
-            if cal.get("eventClick"):
-                props = cal["eventClick"]["event"].get("extendedProps", {})
+            # OTWIERANIE TRENINGU PO KLIKNIĘCIU W BLOK
+            if cal and isinstance(cal, dict) and cal.get("callback") == "eventClick":
+                props = cal.get("eventClick", {}).get("event", {}).get("extendedProps", {})
                 if props.get("type") == "waga": 
                     st.info(f"{tr('Ważenie z dnia')} {props.get('data_str')}: **{props.get('waga')} kg**")
                 elif props.get("type") == "trening":
                     df_c = get_df(target); match_df = df_c[(df_c['data'].astype(str) == props.get('data_str')) & (df_c['dyscyplina'] == props.get('dyscyplina')) & (df_c['tytul'] == props.get('tytul'))]
+                    st.markdown("---")
                     if not match_df.empty: 
                         st.subheader(f"📊 {tr('Szczegóły:')} {props.get('tytul')}")
                         t_dict = match_df.iloc[0].to_dict()
