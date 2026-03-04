@@ -246,7 +246,6 @@ def calculate_compliance(df):
     t = past[~past['wykonany']]['czas'].sum() + past[past['wykonany']]['czas'].sum()
     return int((past[past['wykonany']]['czas'].sum() / t) * 100) if t > 0 else 0
 
-# --- KULOODPORNA FUNKCJA STREF ---
 def calculate_time_in_zones_custom(stream, zone_defs, total_time_mins):
     if not stream or not zone_defs: return []
     zs = [{"label": str(z.get("Strefa", "")), "max": float(z.get("Max", 0)), "count": 0} for z in zone_defs]
@@ -345,6 +344,20 @@ def save_data(new_entry):
     update_athlete_records(new_entry['zawodnik'], new_entry)
     st.session_state.session_treningi.append(new_entry)
     db["treningi"] = list(db["treningi"]) + [new_entry]
+
+def add_comment_to_workout(zawodnik, data_str, tytul, dyscyplina, autor, tresc):
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    new_comment = {"autor": autor, "data": now_str, "tresc": tresc}
+    for w in st.session_state.session_treningi:
+        if w.get('zawodnik') == zawodnik and str(w.get('data')) == str(data_str) and w.get('tytul') == tytul and w.get('dyscyplina') == dyscyplina:
+            if 'komentarze_treningu' not in w: w['komentarze_treningu'] = []
+            w['komentarze_treningu'].append(new_comment)
+    temp_db = list(db["treningi"])
+    for w in temp_db:
+        if w.get('zawodnik') == zawodnik and str(w.get('data')) == str(data_str) and w.get('tytul') == tytul and w.get('dyscyplina') == dyscyplina:
+            if 'komentarze_treningu' not in w: w['komentarze_treningu'] = []
+            w['komentarze_treningu'].append(new_comment)
+    db["treningi"] = temp_db
 
 def get_df(zawodnik=None):
     data = st.session_state.session_treningi
@@ -1217,7 +1230,6 @@ elif menu == tr("Kalendarz"):
         with col_c:
             events = przygotuj_kalendarz(target)
             
-            # FOOLPROOF ROZWIĄZANIE NA KLIKANIE KALENDARZA
             if 'cal_click_date' not in st.session_state:
                 st.session_state.cal_click_date = str(date.today())
                 
@@ -1237,7 +1249,6 @@ elif menu == tr("Kalendarz"):
             
             cal = calendar(events=events, options=cal_options, key=f'cal_view_{target}', callbacks=['dateClick', 'eventClick', 'select'])
             
-            # Nasłuchwianie JavaScriptu
             if cal and isinstance(cal, dict):
                 if cal.get("callback") == "dateClick":
                     clicked_date = cal.get("dateClick", {}).get("dateStr")
@@ -1253,7 +1264,6 @@ elif menu == tr("Kalendarz"):
             st.markdown("---")
             st.markdown("### 🗓️ Zarządzaj Dniem")
             
-            # Bezpieczny wybierak daty (zawsze działa, nawet jeśli skrypt kliknięcia zostanie zablokowany przez telefon)
             try:
                 def_d = datetime.strptime(st.session_state.cal_click_date, "%Y-%m-%d").date()
             except:
@@ -1263,7 +1273,6 @@ elif menu == tr("Kalendarz"):
             c_date = str(c_date_obj)
             st.session_state.cal_click_date = c_date
             
-            # Panel dnia (Notes i Planowanie)
             curr_notes = [n for n in db.get("day_notes", []) if n['zawodnik'] == target and n['data'] == c_date]
             curr_note_text = curr_notes[0]['note'] if curr_notes else ""
             
@@ -1303,7 +1312,7 @@ elif menu == tr("Kalendarz"):
                             save_data({"zawodnik": target, "dyscyplina": p_sport, "data": c_date, "tytul": p_title, "komentarz": p_desc, "czas": p_time, "tss": p_tss, "wykonany": False, "kroki": p_steps})
                             st.success(tr("Zaplanowano!")); st.session_state.cal_click_date = None; st.rerun()
 
-            # OTWIERANIE TRENINGU PO KLIKNIĘCIU W BLOK
+            # --- OTWIERANIE TRENINGU (NAPRAWIONA LOGIKA WYŚWIETLANIA) ---
             if cal and isinstance(cal, dict) and cal.get("callback") == "eventClick":
                 props = cal.get("eventClick", {}).get("event", {}).get("extendedProps", {})
                 if props.get("type") == "waga": 
@@ -1315,11 +1324,17 @@ elif menu == tr("Kalendarz"):
                         st.subheader(f"📊 {tr('Szczegóły:')} {props.get('tytul')}")
                         t_dict = match_df.iloc[0].to_dict()
                         
-                        if t_dict.get('wykonany') and st.session_state.role == "coach":
-                            st.markdown(f"**RPE:** {t_dict.get('rpe', 5)}/10 | **Samopoczucie:** {t_dict.get('feeling', '🙂')}")
-                            if t_dict.get('komentarz'):
-                                st.markdown(f"*{t_dict.get('komentarz')}*")
-                        render_analysis_dashboard(t_dict, get_user_zones(target, t_dict['dyscyplina']))
+                        # LOGIKA ROZDZIELAJĄCA ZAPLANOWANY OD WYKONANEGO
+                        if t_dict.get('wykonany'):
+                            if st.session_state.role == "coach":
+                                st.markdown(f"**RPE:** {t_dict.get('rpe', 5)}/10 | **Samopoczucie:** {t_dict.get('feeling', '🙂')}")
+                                if t_dict.get('komentarz'):
+                                    st.markdown(f"*{t_dict.get('komentarz')}*")
+                            render_analysis_dashboard(t_dict, get_user_zones(target, t_dict['dyscyplina']))
+                        else:
+                            # Pokaż słupki dla zaplanowanego treningu (bez wejścia w surową analizę)
+                            render_planned_workout_view(t_dict, get_user_zones(target, t_dict['dyscyplina']).get('ftp', 250))
+                            
                     else: st.info(tr("Nie znaleziono szczegółów. Sprawdź listę zadań."))
 
         with col_s: render_tp_weekly_list(get_df(target))
