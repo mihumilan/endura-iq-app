@@ -52,7 +52,7 @@ mongo_client = get_database_client()
 db = MongoDBWrapper(mongo_client)
 
 # ==========================================
-# 1. KONFIGURACJA, TŁUMACZENIA I CSS
+# 1. KONFIGURACJA, TŁUMACZENIA I CSS GŁÓWNY
 # ==========================================
 if 'lang' not in st.session_state: st.session_state.lang = 'PL'
 
@@ -156,29 +156,48 @@ def inject_custom_css():
         tbody tr:nth-of-type(even) { background-color: #11151C; }
         tbody tr:nth-of-type(odd) { background-color: #161B22; }
         #MainMenu {visibility: hidden;} footer {visibility: hidden;}
-        
-        .fc { font-family: 'Inter', sans-serif !important; background: #0A0D12; border-radius: 12px; padding: 10px; border: 1px solid #1F2735; }
-        .fc-theme-standard td, .fc-theme-standard th { border-color: #1F2735 !important; }
-        .fc-col-header-cell { padding: 12px 0; background-color: #11151C; color: #8BA1B8; text-transform: uppercase; font-size: 0.85em; letter-spacing: 1.5px; }
-        .fc-daygrid-day-number { color: #E2E8F0; font-weight: 800; padding: 8px !important; }
-        .fc-day-today { background-color: rgba(0, 229, 255, 0.05) !important; }
-        .fc .fc-toolbar-title { font-weight: 900; color: #00E5FF; text-transform: uppercase; letter-spacing: 1px; }
-        .fc .fc-button-primary { background-color: #11151C !important; border: 1px solid #1F2735 !important; color: #8BA1B8 !important; border-radius: 6px !important; transition: all 0.3s ease !important; text-transform: uppercase; font-size: 0.8em; font-weight: 600; }
-        .fc .fc-button-primary:hover, .fc .fc-button-primary:not(:disabled):active, .fc .fc-button-primary:not(:disabled).fc-button-active { background-color: #00E5FF !important; color: #000 !important; border-color: #00E5FF !important; }
-        
-        .fc-daygrid-event { border: none !important; border-radius: 4px !important; padding: 4px 6px !important; margin: 3px 4px !important; font-size: 0.85em !important; font-weight: 600 !important; transition: transform 0.2s ease, box-shadow 0.2s ease !important; cursor: pointer; }
-        .fc-daygrid-event:hover { transform: scale(1.02) translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 10; }
-        
-        .planned-workout { background: linear-gradient(145deg, #1A202C, #11151C) !important; border: 1px dashed #00E5FF !important; color: #00E5FF !important; }
-        .completed-workout-green { background: linear-gradient(90deg, rgba(0,200,83,0.15) 0%, rgba(0,200,83,0) 100%) !important; border-left: 3px solid #00C853 !important; color: #00C853 !important; }
-        .completed-workout-yellow { background: linear-gradient(90deg, rgba(255,214,0,0.15) 0%, rgba(255,214,0,0) 100%) !important; border-left: 3px solid #FFD600 !important; color: #FFD600 !important; }
-        .completed-workout-red { background: linear-gradient(90deg, rgba(213,0,0,0.15) 0%, rgba(213,0,0,0) 100%) !important; border-left: 3px solid #D50000 !important; color: #D50000 !important; }
-        
-        .day-note-event { background: none !important; border: none !important; color: #FFD700 !important; font-style: italic; font-weight: 400 !important; text-align: left; padding: 0 4px !important; margin-top: -5px !important; opacity: 0.8;}
-        .race-event { background: linear-gradient(90deg, rgba(255,215,0,0.2) 0%, rgba(255,215,0,0.05) 100%) !important; border-left: 3px solid #FFD700 !important; color: #FFD700 !important; font-weight: 800 !important; text-transform: uppercase; }
-        .weight-event { background: rgba(255,255,255,0.05) !important; color: #8BA1B8 !important; border-radius: 20px !important; padding: 2px 8px !important; display: inline-block !important; border: 1px solid #1F2735 !important; }
     </style>
     """, unsafe_allow_html=True)
+
+# NOWOŚĆ: BEZPOŚREDNIE STYLE TYLKO DLA KALENDARZA (PRZEKAZYWANE DO IFRAME)
+cal_css = """
+    .fc-theme-standard td, .fc-theme-standard th { border-color: #1F2735 !important; }
+    .fc-daygrid-day { background-color: #0A0D12 !important; }
+    .fc-day-today { background-color: #161B22 !important; }
+    .fc-col-header-cell { background-color: #11151C !important; color: #8BA1B8 !important; padding: 10px 0 !important; text-transform: uppercase; font-size: 0.85rem;}
+    .fc-daygrid-day-number { color: #E2E8F0 !important; font-weight: 600; font-size: 1.1rem; padding: 8px !important; text-decoration: none !important; }
+    .fc-toolbar-title { color: #00E5FF !important; font-weight: 800 !important; text-transform: uppercase; letter-spacing: 1px; font-size: 1.4rem !important;}
+    .fc-button-primary { background-color: #11151C !important; border: 1px solid #00E5FF !important; color: #00E5FF !important; text-transform: uppercase; font-weight: bold !important; border-radius: 6px !important; padding: 6px 12px !important;}
+    .fc-button-primary:hover { background-color: #00E5FF !important; color: #000 !important; }
+    
+    /* Główne Style dla Widżetów Treningowych */
+    .fc-event {
+        border-radius: 6px !important;
+        padding: 5px 8px !important;
+        margin: 3px !important;
+        font-size: 0.95rem !important;
+        font-weight: 700 !important;
+        border: none !important;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important;
+        cursor: pointer !important;
+        transition: transform 0.2s ease, filter 0.2s ease !important;
+    }
+    .fc-event:hover {
+        transform: translateY(-2px) scale(1.02) !important;
+        filter: brightness(1.2) !important;
+        z-index: 10 !important;
+    }
+    
+    /* Klasy Kolorystyczne (TrainingPeaks Vibe) */
+    .completed-workout-green { background: linear-gradient(135deg, #00C853 0%, #009624 100%) !important; border-left: 4px solid #00FF66 !important; color: #FFF !important; }
+    .completed-workout-yellow { background: linear-gradient(135deg, #FFD600 0%, #F57F17 100%) !important; border-left: 4px solid #FFFF00 !important; color: #000 !important; }
+    .completed-workout-red { background: linear-gradient(135deg, #D50000 0%, #8E0000 100%) !important; border-left: 4px solid #FF5252 !important; color: #FFF !important; }
+    .planned-workout { background: #11151C !important; border: 2px dashed #00E5FF !important; color: #00E5FF !important; }
+    
+    .weight-event { background: #2D3748 !important; color: #A0AEC0 !important; border-radius: 20px !important; font-size: 0.8rem !important; padding: 2px 8px !important; text-align: center;}
+    .race-event { background: linear-gradient(135deg, #FFD700 0%, #F57F17 100%) !important; color: #000 !important; font-weight: 900 !important; text-transform: uppercase;}
+    .day-note-event { background: transparent !important; color: #FFD700 !important; font-style: italic !important; font-weight: 500 !important; box-shadow: none !important; text-align: right; }
+"""
 
 inject_custom_css()
 
@@ -278,6 +297,34 @@ def calculate_time_in_zones_custom(stream, zone_defs, total_time_mins):
         
     return [{"label": z["label"], "mins": round((z["count"]/t) * ttm, 1), "pct": (z["count"]/t)*100} for z in zs]
 
+# FUNKCJA RYSUJĄCA NIEZAWODNE WYKRESY STREF
+def render_zone_chart_robust(df_z, title):
+    max_v = df_z['mins'].max()
+    max_v = float(max_v) if pd.notna(max_v) else 0.0
+    if max_v <= 0: max_v = 1.0 # Bezpiecznik
+    
+    fig = go.Figure(go.Bar(
+        x=df_z['mins'].astype(float),
+        y=df_z['label'].astype(str),
+        orientation='h',
+        text=df_z['mins'].apply(lambda x: f"{float(x):.1f}m"),
+        textposition='auto',
+        marker_color=ZONE_COLORS[:len(df_z)]
+    ))
+    
+    fig.update_layout(
+        title=title,
+        yaxis=dict(categoryorder='array', categoryarray=df_z['label'].astype(str).tolist()[::-1]),
+        xaxis=dict(range=[0, max_v * 1.15]), # Twarde wymuszenie startu od 0
+        template="plotly_dark",
+        showlegend=False,
+        height=250,
+        margin=dict(l=0,r=10,t=30,b=0),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)'
+    )
+    return fig
+
 def pace_str_to_float(pace_str):
     try: p=pace_str.split(':'); return int(p[0])+int(p[1])/60.0
     except: return 0.0
@@ -344,20 +391,6 @@ def save_data(new_entry):
     update_athlete_records(new_entry['zawodnik'], new_entry)
     st.session_state.session_treningi.append(new_entry)
     db["treningi"] = list(db["treningi"]) + [new_entry]
-
-def add_comment_to_workout(zawodnik, data_str, tytul, dyscyplina, autor, tresc):
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    new_comment = {"autor": autor, "data": now_str, "tresc": tresc}
-    for w in st.session_state.session_treningi:
-        if w.get('zawodnik') == zawodnik and str(w.get('data')) == str(data_str) and w.get('tytul') == tytul and w.get('dyscyplina') == dyscyplina:
-            if 'komentarze_treningu' not in w: w['komentarze_treningu'] = []
-            w['komentarze_treningu'].append(new_comment)
-    temp_db = list(db["treningi"])
-    for w in temp_db:
-        if w.get('zawodnik') == zawodnik and str(w.get('data')) == str(data_str) and w.get('tytul') == tytul and w.get('dyscyplina') == dyscyplina:
-            if 'komentarze_treningu' not in w: w['komentarze_treningu'] = []
-            w['komentarze_treningu'].append(new_comment)
-    db["treningi"] = temp_db
 
 def get_df(zawodnik=None):
     data = st.session_state.session_treningi
@@ -775,36 +808,14 @@ def render_analysis_dashboard(t, user_settings):
                 z_pwr = calculate_time_in_zones_custom(streams['watts'], user_settings["zones_pwr"], t.get('czas', 0))
                 if z_pwr:
                     df_zp = pd.DataFrame(z_pwr)
-                    fig_zp = go.Figure(go.Bar(
-                        x=df_zp['mins'].astype(float), 
-                        y=df_zp['label'].astype(str), 
-                        orientation='h',
-                        text=df_zp['mins'].apply(lambda x: f"{x} min"), 
-                        textposition='auto',
-                        marker_color=ZONE_COLORS[:len(df_zp)]
-                    ))
-                    max_x_pwr = float(df_zp['mins'].max() * 1.1) if not df_zp.empty else 1.0
-                    if max_x_pwr <= 0: max_x_pwr = 1.0
-                    fig_zp.update_layout(title=tr("Moc"), yaxis=dict(autorange="reversed"), template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-                    fig_zp.update_xaxes(range=[0, max_x_pwr])
+                    fig_zp = render_zone_chart_robust(df_zp, tr("Moc"))
                     cz1.plotly_chart(fig_zp, use_container_width=True)
                     
             if has_hr and user_settings.get("zones_hr"):
                 z_hr = calculate_time_in_zones_custom(streams['hr'], user_settings["zones_hr"], t.get('czas', 0))
                 if z_hr:
                     df_zh = pd.DataFrame(z_hr)
-                    fig_zh = go.Figure(go.Bar(
-                        x=df_zh['mins'].astype(float), 
-                        y=df_zh['label'].astype(str), 
-                        orientation='h',
-                        text=df_zh['mins'].apply(lambda x: f"{x} min"), 
-                        textposition='auto',
-                        marker_color=ZONE_COLORS[:len(df_zh)]
-                    ))
-                    max_x_hr = float(df_zh['mins'].max() * 1.1) if not df_zh.empty else 1.0
-                    if max_x_hr <= 0: max_x_hr = 1.0
-                    fig_zh.update_layout(title=tr("Tętno"), yaxis=dict(autorange="reversed"), template="plotly_dark", showlegend=False, height=250, margin=dict(l=0,r=0,t=30,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-                    fig_zh.update_xaxes(range=[0, max_x_hr])
+                    fig_zh = render_zone_chart_robust(df_zh, tr("Tętno"))
                     cz2.plotly_chart(fig_zh, use_container_width=True)
 
     st.markdown("---")
@@ -1247,7 +1258,8 @@ elif menu == tr("Kalendarz"):
                 "eventDisplay": "block"
             }
             
-            cal = calendar(events=events, options=cal_options, key=f'cal_view_{target}', callbacks=['dateClick', 'eventClick', 'select'])
+            # WSTRZYKNIĘTY NOWY, EKSKLUZYWNY CSS DO RAMKI KALENDARZA
+            cal = calendar(events=events, options=cal_options, custom_css=cal_css, key=f'cal_view_{target}', callbacks=['dateClick', 'eventClick', 'select'])
             
             if cal and isinstance(cal, dict):
                 if cal.get("callback") == "dateClick":
@@ -1312,7 +1324,7 @@ elif menu == tr("Kalendarz"):
                             save_data({"zawodnik": target, "dyscyplina": p_sport, "data": c_date, "tytul": p_title, "komentarz": p_desc, "czas": p_time, "tss": p_tss, "wykonany": False, "kroki": p_steps})
                             st.success(tr("Zaplanowano!")); st.session_state.cal_click_date = None; st.rerun()
 
-            # --- OTWIERANIE TRENINGU (NAPRAWIONA LOGIKA WYŚWIETLANIA) ---
+            # --- OTWIERANIE TRENINGU Z POZIOMU KALENDARZA ---
             if cal and isinstance(cal, dict) and cal.get("callback") == "eventClick":
                 props = cal.get("eventClick", {}).get("event", {}).get("extendedProps", {})
                 if props.get("type") == "waga": 
@@ -1324,7 +1336,6 @@ elif menu == tr("Kalendarz"):
                         st.subheader(f"📊 {tr('Szczegóły:')} {props.get('tytul')}")
                         t_dict = match_df.iloc[0].to_dict()
                         
-                        # LOGIKA ROZDZIELAJĄCA ZAPLANOWANY OD WYKONANEGO
                         if t_dict.get('wykonany'):
                             if st.session_state.role == "coach":
                                 st.markdown(f"**RPE:** {t_dict.get('rpe', 5)}/10 | **Samopoczucie:** {t_dict.get('feeling', '🙂')}")
@@ -1332,7 +1343,6 @@ elif menu == tr("Kalendarz"):
                                     st.markdown(f"*{t_dict.get('komentarz')}*")
                             render_analysis_dashboard(t_dict, get_user_zones(target, t_dict['dyscyplina']))
                         else:
-                            # Pokaż słupki dla zaplanowanego treningu (bez wejścia w surową analizę)
                             render_planned_workout_view(t_dict, get_user_zones(target, t_dict['dyscyplina']).get('ftp', 250))
                             
                     else: st.info(tr("Nie znaleziono szczegółów. Sprawdź listę zadań."))
