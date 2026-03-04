@@ -265,6 +265,7 @@ def calculate_compliance(df):
     t = past[~past['wykonany']]['czas'].sum() + past[past['wykonany']]['czas'].sum()
     return int((past[past['wykonany']]['czas'].sum() / t) * 100) if t > 0 else 0
 
+# --- KULOODPORNA FUNKCJA STREF ---
 def calculate_time_in_zones_custom(stream, zone_defs, total_time_mins):
     if not stream or not zone_defs: return []
     zs = [{"label": str(z.get("Strefa", "")), "max": float(z.get("Max", 0)), "count": 0} for z in zone_defs]
@@ -297,7 +298,7 @@ def calculate_time_in_zones_custom(stream, zone_defs, total_time_mins):
         
     return [{"label": z["label"], "mins": round((z["count"]/t) * ttm, 1), "pct": (z["count"]/t)*100} for z in zs]
 
-# FUNKCJA RYSUJĄCA NIEZAWODNE WYKRESY STREF
+# --- FUNKCJA RYSUJĄCA NIEZAWODNE WYKRESY STREF ---
 def render_zone_chart_robust(df_z, title):
     max_v = df_z['mins'].max()
     max_v = float(max_v) if pd.notna(max_v) else 0.0
@@ -391,6 +392,20 @@ def save_data(new_entry):
     update_athlete_records(new_entry['zawodnik'], new_entry)
     st.session_state.session_treningi.append(new_entry)
     db["treningi"] = list(db["treningi"]) + [new_entry]
+
+def add_comment_to_workout(zawodnik, data_str, tytul, dyscyplina, autor, tresc):
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    new_comment = {"autor": autor, "data": now_str, "tresc": tresc}
+    for w in st.session_state.session_treningi:
+        if w.get('zawodnik') == zawodnik and str(w.get('data')) == str(data_str) and w.get('tytul') == tytul and w.get('dyscyplina') == dyscyplina:
+            if 'komentarze_treningu' not in w: w['komentarze_treningu'] = []
+            w['komentarze_treningu'].append(new_comment)
+    temp_db = list(db["treningi"])
+    for w in temp_db:
+        if w.get('zawodnik') == zawodnik and str(w.get('data')) == str(data_str) and w.get('tytul') == tytul and w.get('dyscyplina') == dyscyplina:
+            if 'komentarze_treningu' not in w: w['komentarze_treningu'] = []
+            w['komentarze_treningu'].append(new_comment)
+    db["treningi"] = temp_db
 
 def get_df(zawodnik=None):
     data = st.session_state.session_treningi
@@ -1208,17 +1223,27 @@ elif menu == tr("Statystyki"):
         if sel_month_str != months_pl[0] and sel_month_str != months_en[0]: df_filtered = df_filtered[df_filtered['month'] == month_opts.index(sel_month_str)]
 
         if not df_filtered.empty:
+            # Twarde wymuszenie typu numerycznego, żeby wykres kołowy nie traktował tego jako licznika sztuk (np. 33.3%)
+            df_filtered['czas'] = pd.to_numeric(df_filtered['czas'], errors='coerce').fillna(0)
+            df_filtered['dystans'] = pd.to_numeric(df_filtered['dystans'], errors='coerce').fillna(0)
+            
             total_time = df_filtered['czas'].sum(); total_dist = df_filtered['dystans'].sum(); total_tss = df_filtered['tss'].sum()
             k1, k2, k3 = st.columns(3)
             k1.markdown(f"<div class='metric-card'><div class='metric-val'>{format_czas(total_time)}</div><div class='metric-label'>{tr('Czas całkowity')}</div></div>", unsafe_allow_html=True)
             k2.markdown(f"<div class='metric-card'><div class='metric-val'>{total_dist:.1f} km</div><div class='metric-label'>{tr('Dystans całkowity')}</div></div>", unsafe_allow_html=True)
             k3.markdown(f"<div class='metric-card'><div class='metric-val'>{int(total_tss)}</div><div class='metric-label'>TSS</div></div>", unsafe_allow_html=True)
+            
             agg_df = df_filtered.groupby('dyscyplina').agg({'czas': 'sum', 'dystans': 'sum'}).reset_index()
             st.markdown("---")
             c_pie, c_table = st.columns([1.5, 1])
             with c_pie:
                 st.markdown(f"#### {tr('Proporcja czasu wg dyscyplin')}")
-                fig = go.Figure(data=[go.Pie(labels=[tr(d) for d in agg_df['dyscyplina']], values=agg_df['czas'], hole=.4, marker=dict(colors=[KOLORY_SPORT.get(d, '#8BA1B8') for d in agg_df['dyscyplina']]))])
+                fig = go.Figure(data=[go.Pie(
+                    labels=[tr(d) for d in agg_df['dyscyplina']], 
+                    values=agg_df['czas'].astype(float).tolist(), 
+                    hole=.4, 
+                    marker=dict(colors=[KOLORY_SPORT.get(d, '#8BA1B8') for d in agg_df['dyscyplina']])
+                )])
                 fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(t=20, b=20, l=20, r=20))
                 st.plotly_chart(fig, use_container_width=True)
             with c_table:
@@ -1258,7 +1283,6 @@ elif menu == tr("Kalendarz"):
                 "eventDisplay": "block"
             }
             
-            # WSTRZYKNIĘTY NOWY, EKSKLUZYWNY CSS DO RAMKI KALENDARZA
             cal = calendar(events=events, options=cal_options, custom_css=cal_css, key=f'cal_view_{target}', callbacks=['dateClick', 'eventClick', 'select'])
             
             if cal and isinstance(cal, dict):
