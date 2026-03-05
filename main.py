@@ -15,7 +15,7 @@ import io
 import zipfile
 from streamlit_calendar import calendar
 
-st.set_page_config(page_title="Endura IQ", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Endura IQ", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 
 # --- MODUŁ BAZY DANYCH MONGODB (CLOUD) ---
 import pymongo
@@ -120,7 +120,93 @@ TRANSLATIONS = {
         "Dodaj Trening do Planu": "Add Workout to Plan", "Zapisz Plan": "Save Plan", "Nazwa Planu (np. 4 tygodnie Baza)": "Plan Name (e.g., 4-week Base)",
         "Najpierw stwórz pojedyncze treningi (szablony) w zakładce Kreator.": "First, create individual workouts (templates) in the Builder tab.",
         "Ocena Treningu (RPE i Samopoczucie)": "Workout Rating (RPE & Feeling)",
-        "Szablon / Fragment": "Template / Fragment"
+        "Szablon / Fragment": "Template / Fragment",
+        
+        # NOWE DODANE TŁUMACZENIA:
+        "🔄 Pobierz automatycznie z Garmin Connect": "🔄 Auto-Sync from Garmin Connect",
+        "Aplikacja sama znajdzie Twoje ostatnie treningi w chmurze Garmina, pobierze ich ukryte pliki TCX i dokona pełnej analizy.": "The app will automatically find your recent workouts in the Garmin cloud, download their hidden TCX files, and perform a full analysis.",
+        "Ile ostatnich aktywności sprawdzić?": "How many recent activities to check?",
+        "📥 Pobierz teraz": "📥 Download now",
+        "Łączenie z Garmin Connect i pobieranie": "Connecting to Garmin Connect and downloading",
+        "aktywności... (to potrwa kilkanaście sekund)": "activities... (this will take a few seconds)",
+        "Zakończono! Pomyślnie pobrano i zanalizowano": "Finished! Successfully downloaded and analyzed",
+        "nowych treningów.": "new workouts.",
+        "Wszystkie treningi z wybranego okresu są już w Twojej bazie Endura IQ. Nie znaleziono nowych.": "All workouts from the selected period are already in your Endura IQ database. No new ones found.",
+        "Błąd synchronizacji:": "Synchronization error:",
+        "⚠️ Zanim pobierzesz treningi, musisz podać dane logowania do Garmina w zakładce 'Dane zawodnika' -> 'Integracje 🔗'": "⚠️ Before downloading workouts, you must provide your Garmin login credentials in the 'Athlete Data' -> 'Integrations 🔗' tab.",
+        "📂 Ręczne wgranie pliku (TCX)": "📂 Manual file upload (TCX)",
+        "Pełna Analiza (Wykresy i Mapa)": "Full Analysis (Charts & Map)",
+        "Szczegóły:": "Details:",
+        "❌ Zamknij panel dnia": "❌ Close day panel",
+        "🗓️ Zarządzaj Dniem": "🗓️ Manage Day",
+        "Wybierz datę (kliknij w kalendarzu u góry lub wpisz ręcznie):": "Select a date (click on the calendar above or enter manually):",
+        "📌 Zostaw notatkę na dzień": "📌 Leave a note for",
+        "(np. ograniczony czas, wyjazd):": "(e.g., limited time, travel):",
+        "Komentarz do dnia": "Day comment",
+        "Zapisz Notatkę": "Save Note",
+        "Notatka przypięta do kalendarza!": "Note pinned to calendar!",
+        "🏆 Dodaj Zawody w dniu": "🏆 Add Race on",
+        "⚡ Zaplanuj Trening (Trener) -": "⚡ Plan Workout (Coach) -",
+        "-- Własny --": "-- Custom --",
+        "Bez nazwy": "Unnamed",
+        "💾 Zapisz / Aktualizuj": "💾 Save / Update",
+        "🔄 Zastąp": "🔄 Replace",
+        "➕ Doklej": "➕ Append",
+        "🗑️ Usuń": "🗑️ Delete",
+        "Usunięto!": "Deleted!",
+        "Zaktualizowano istniejący szablon!": "Existing template updated!",
+        "Zapisano nowy szablon!": "New template saved!",
+        "🗺️ Mapa trasy GPS": "🗺️ GPS Route Map",
+        "⏱️ Interwały": "⏱️ Intervals",
+        "📊 Czas w strefach": "📊 Time in Zones",
+        "💬 Komentarze do rozmowy": "💬 Conversation comments",
+        "Dodaj szybką wiadomość...": "Add a quick message...",
+        "Wyślij": "Send",
+        "Integracje 🔗": "Integrations 🔗",
+        "📝 Ankieta Profilowa": "📝 Profile Survey",
+        "🔵 Autoryzacja Garmin Connect": "🔵 Garmin Connect Authorization",
+        "Podaj dane logowania, aby aplikacja Endura IQ mogła automatycznie wysyłać zaplanowane treningi prosto do Twojego kalendarza w zegarku.": "Provide login details so the Endura IQ app can automatically send planned workouts straight to your watch calendar.",
+        "E-mail Garmin": "Garmin Email",
+        "Hasło Garmin": "Garmin Password",
+        "Zapisz połączenie z chmurą": "Save cloud connection",
+        "Zapisano dane. Od teraz możesz wysyłać treningi prosto z kalendarza!": "Data saved. From now on, you can send workouts straight from the calendar!",
+        "Profil Startowy (Ankieta):": "Initial Profile (Survey):",
+        "Data wypełnienia:": "Fill date:",
+        "Wzrost:": "Height:",
+        "Tętno spoczynkowe:": "Resting Heart Rate:",
+        "Zdrowie i Urazy": "Health and Injuries",
+        "Cukrzyca:": "Diabetes:",
+        "Astma:": "Asthma:",
+        "Choroby serca:": "Heart diseases:",
+        "Problemy z kręgosłupem/stawami:": "Spine/joint problems:",
+        "Urazy/Kontuzje:": "Injuries:",
+        "Brak": "None",
+        "Styl życia": "Lifestyle",
+        "Praca:": "Work:",
+        "Średni sen:": "Average sleep:",
+        "Harmonogram dostępności (godziny/dzień)": "Availability schedule (hours/day)",
+        "Cele i Doświadczenie": "Goals and Experience",
+        "Staż w sportach:": "Sports experience:",
+        "Cel główny:": "Main goal:",
+        "Główne zawody (Kategoria A):": "Main race (A Race):",
+        "Najsłabsze strony:": "Weaknesses:",
+        "Dostępny Sprzęt": "Available Equipment",
+        "Basen/Wody otwarte:": "Pool/Open water:",
+        "Trenażer Smart:": "Smart Trainer:",
+        "Pomiar mocy:": "Power meter:",
+        "Profil Psychologiczny (1-5)": "Psychological Profile (1-5)",
+        "Odporność na ból:": "Pain tolerance:",
+        "Koncentracja w stresie:": "Focus under stress:",
+        "Dyscyplina treningowa:": "Training discipline:",
+        "Zdolność do odpoczynku:": "Ability to rest:",
+        "Ten zawodnik nie wypełnił jeszcze ankiety startowej.": "This athlete hasn't filled out the initial survey yet.",
+        "✏️ Edytuj ocenę": "✏️ Edit rating",
+        "RPE (Odczuwany wysiłek)": "RPE (Perceived Exertion)",
+        "Zrobione! Trening jest gotowy. Twój zegarek będzie pilnował intensywności.": "Done! Workout is ready. Your watch will monitor the intensity.",
+        "Błąd po stronie serwerów Garmin:": "Garmin servers error:",
+        "Brak danych logowania do Garmin Connect. Uzupełnij je najpierw w zakładce 'Dane Zawodnika' -> 'Integracje 🔗'.": "No Garmin Connect login credentials. Fill them in the 'Athlete Data' -> 'Integrations 🔗' tab first.",
+        "⚠️ Błąd logowania! Sprawdź czy e-mail/hasło są poprawne. Upewnij się też, że na koncie Garmin masz wyłączoną weryfikację dwuetapową (2FA).": "⚠️ Login error! Check if email/password are correct. Make sure 2FA is disabled on your Garmin account.",
+        "⚠️ Błąd integracji:": "⚠️ Integration error:"
     }
 }
 
@@ -535,9 +621,9 @@ def send_workout_to_garmin_connect(email, password, workout_data):
         w_id = res_dict["workoutId"]
         w_date = str(workout_data.get('data', date.today()))
         client.garth.post("connectapi", f"/workout-service/schedule/{w_id}", json={"date": w_date})
-        return True, "Zrobione! Trening jest gotowy. Twój zegarek będzie pilnował intensywności."
+        return True, tr("Zrobione! Trening jest gotowy. Twój zegarek będzie pilnował intensywności.")
     else:
-        return False, f"Błąd po stronie serwerów Garmin: {str(res_dict)[:150]}"
+        return False, f"{tr('Błąd po stronie serwerów Garmin:')} {str(res_dict)[:150]}"
 
 def sync_from_garmin(zawodnik, email, password, limit=10):
     import garminconnect
@@ -752,14 +838,14 @@ def render_planned_workout_view(t, user_ftp=250):
         with st.expander(tr("Zobacz Rozpiskę")): st.table(pd.DataFrame(steps_data))
         
         st.markdown("---")
-        st.markdown("### ☁️ Synchronizacja")
+        st.markdown(f"### ☁️ {tr('Synchronizacja')}")
         
         if st.button("🚀 Wyślij prosto do Garmin Connect (WiFi / Bluetooth)", key=f"gc_{t['tytul']}_{t['data']}"):
-            with st.spinner("Łączenie z serwerami Garmin..."):
+            with st.spinner(f"{tr('Łączenie z Garmin Connect i pobieranie')} 1 {tr('aktywności... (to potrwa kilkanaście sekund)')}"):
                 zawodnik = t.get('zawodnik')
                 g_creds = db["garmin_creds"].get(zawodnik, {})
                 if not g_creds.get("email") or not g_creds.get("password"):
-                    st.error("Brak danych logowania do Garmin Connect. Uzupełnij je najpierw w zakładce 'Dane Zawodnika' -> 'Integracje 🔗'.")
+                    st.error(tr("Brak danych logowania do Garmin Connect. Uzupełnij je najpierw w zakładce 'Dane Zawodnika' -> 'Integracje 🔗'."))
                 else:
                     try:
                         ok, msg = send_workout_to_garmin_connect(g_creds["email"], g_creds["password"], t)
@@ -769,9 +855,9 @@ def render_planned_workout_view(t, user_ftp=250):
                         else: st.error(msg)
                     except Exception as e:
                         if "Authentication" in str(e) or "Login" in str(e) or "401" in str(e) or "403" in str(e):
-                            st.error("⚠️ Błąd logowania! Sprawdź czy e-mail/hasło są poprawne. Upewnij się też, że na koncie Garmin masz wyłączoną weryfikację dwuetapową (2FA).")
+                            st.error(tr("⚠️ Błąd logowania! Sprawdź czy e-mail/hasło są poprawne. Upewnij się też, że na koncie Garmin masz wyłączoną weryfikację dwuetapową (2FA)."))
                         else:
-                            st.error(f"⚠️ Błąd integracji: {str(e)}")
+                            st.error(f"{tr('⚠️ Błąd integracji:')} {str(e)}")
 
     else: st.warning(tr("Tylko opis tekstowy."))
 
@@ -786,14 +872,14 @@ def render_analysis_dashboard(t, user_settings):
         lat_list = [l for l in streams.get('lat', []) if l is not None]
         lon_list = [l for l in streams.get('lon', []) if l is not None]
         if lat_list and lon_list:
-            st.markdown(f"### 🗺️ {tr('Mapa trasy GPS')}")
+            st.markdown(f"### {tr('🗺️ Mapa trasy GPS')}")
             fig_map = go.Figure(go.Scattermapbox(mode="lines", lon=lon_list, lat=lat_list, line=dict(width=4, color='#00E5FF')))
             fig_map.update_layout(margin={'l':0, 't':0, 'b':0, 'r':0}, mapbox=dict(style="carto-darkmatter", center=dict(lat=np.mean(lat_list), lon=np.mean(lon_list)), zoom=12), height=350, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig_map, use_container_width=True)
             st.markdown("<br>", unsafe_allow_html=True)
 
     if t.get('laps'):
-        st.markdown(f"### ⏱️ {tr('Interwały')}")
+        st.markdown(f"### {tr('⏱️ Interwały')}")
         ldf = pd.DataFrame(t['laps'])
         cols = ["nr","czas","dystans","tempo"] if t['dyscyplina']=="Pływanie" else ["nr","czas","dystans","hr","moc","tempo"]
         st.dataframe(ldf[[c for c in cols if c in ldf.columns]], hide_index=True, use_container_width=True)
@@ -816,7 +902,7 @@ def render_analysis_dashboard(t, user_settings):
         st.plotly_chart(fig, use_container_width=True)
 
         if has_pwr or has_hr:
-            st.markdown(f"### 📊 {tr('Czas w strefach')}")
+            st.markdown(f"### {tr('📊 Czas w strefach')}")
             cz1, cz2 = st.columns(2)
             
             if has_pwr and user_settings.get("zones_pwr"):
@@ -834,7 +920,7 @@ def render_analysis_dashboard(t, user_settings):
                     cz2.plotly_chart(fig_zh, use_container_width=True)
 
     st.markdown("---")
-    st.markdown(f"### 💬 {tr('Komentarze do rozmowy')}")
+    st.markdown(f"### {tr('💬 Komentarze do rozmowy')}")
     komentarze = t.get('komentarze_treningu', [])
     for c in komentarze:
         is_me = (c['autor'] == st.session_state.username)
@@ -884,15 +970,15 @@ def render_workout_expander(row, idx, ja, is_coach=False):
                 col_rpe1.markdown(f"*{t_dict.get('komentarz')}*")
                 
             if not is_coach:
-                if col_rpe2.button("✏️ Edytuj ocenę", key=f"btn_edit_{idx}_{t_dict['data']}"):
+                if col_rpe2.button(tr("✏️ Edytuj ocenę"), key=f"btn_edit_{idx}_{t_dict['data']}"):
                     st.session_state[f"edit_rating_{idx}_{t_dict['data']}"] = not st.session_state.get(f"edit_rating_{idx}_{t_dict['data']}", False)
                     
                 if st.session_state.get(f"edit_rating_{idx}_{t_dict['data']}", False):
                     with st.form(key=f"form_rating_{idx}_{t_dict['data']}"):
-                        n_rpe = st.slider("RPE (Odczuwany wysiłek)", 1, 10, int(t_dict.get('rpe', 5)))
-                        n_feel = st.select_slider("Samopoczucie", ["😫","😕","😐","🙂","🤩"], value=t_dict.get('feeling', '🙂'))
-                        n_kom = st.text_area("Notatka dla trenera", value=t_dict.get('komentarz', ''))
-                        if st.form_submit_button("Zapisz"):
+                        n_rpe = st.slider(tr("RPE (Odczuwany wysiłek)"), 1, 10, int(t_dict.get('rpe', 5)))
+                        n_feel = st.select_slider(tr("Samopoczucie"), ["😫","😕","😐","🙂","🤩"], value=t_dict.get('feeling', '🙂'))
+                        n_kom = st.text_area(tr("Notatka dla trenera"), value=t_dict.get('komentarz', ''))
+                        if st.form_submit_button(tr("Zapisz")):
                             temp_db = list(db["treningi"])
                             for w in temp_db:
                                 if w.get('zawodnik') == t_dict['zawodnik'] and str(w.get('data')) == str(t_dict['data']) and w.get('tytul') == t_dict['tytul'] and w.get('dyscyplina') == t_dict['dyscyplina']:
@@ -910,37 +996,36 @@ def render_workout_expander(row, idx, ja, is_coach=False):
 def render_onboarding_view(zawodnik):
     fullname = db.get("users_db", {}).get(zawodnik, {}).get("fullname", zawodnik)
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown(f"<h1 style='text-align:center; color:#00E5FF;'>Witaj w Endura IQ, {fullname.split(' ')[0]}! 🚀</h1>", unsafe_allow_html=True)
-    st.markdown("<h4 style='text-align:center; color:#8BA1B8; margin-bottom: 30px;'>Zanim ułożymy Twój pierwszy plan, musimy się lepiej poznać. Przejdź przez krótki formularz, a my zajmiemy się resztą.</h4>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='text-align:center; color:#00E5FF;'>{tr('Witaj w Endura IQ, ')}{fullname.split(' ')[0]}! 🚀</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h4 style='text-align:center; color:#8BA1B8; margin-bottom: 30px;'>{tr('Zanim ułożymy Twój pierwszy plan, musimy się lepiej poznać. Przejdź przez krótki formularz, a my zajmiemy się resztą.')}</h4>", unsafe_allow_html=True)
     
     with st.form("onboarding_wizard"):
-        t1, t2, t3, t4, t5 = st.tabs(["❤️ Zdrowie", "⏱️ Styl Życia", "🎯 Cele", "🚴 Sprzęt", "🧠 Psychologia"])
+        t1, t2, t3, t4, t5 = st.tabs([tr("❤️ Zdrowie"), tr("⏱️ Styl Życia"), tr("🎯 Cele"), tr("🚴 Sprzęt"), tr("🧠 Psychologia")])
         
         with t1:
-            st.markdown("### Podstawowe parametry")
+            st.markdown(f"### {tr('Podstawowe parametry')}")
             c1, c2, c3 = st.columns(3)
-            wzrost = c1.number_input("Wzrost (cm)", 100, 250, 175)
-            waga = c2.number_input("Waga (kg)", 30.0, 200.0, 70.0)
-            hr_rest = c3.number_input("Tętno spoczynkowe (BPM)", 30, 120, 50)
+            wzrost = c1.number_input(tr("Wzrost:"), 100, 250, 175)
+            waga = c2.number_input(tr("Waga:"), 30.0, 200.0, 70.0)
+            hr_rest = c3.number_input(tr("Tętno spoczynkowe:"), 30, 120, 50)
             
-            st.markdown("### Profil medyczny")
-            st.markdown("Czy cierpisz na:")
+            st.markdown(f"### {tr('Profil medyczny')}")
+            st.markdown(tr("Czy cierpisz na:"))
             ch1, ch2, ch3, ch4 = st.columns(4)
-            cukrzyca = ch1.checkbox("Cukrzycę")
-            astma = ch2.checkbox("Astmę / Duszności")
-            serce = ch3.checkbox("Choroby serca")
-            plecy = ch4.checkbox("Problemy z kręgosłupem/stawami")
+            cukrzyca = ch1.checkbox(tr("Cukrzyca:"))
+            astma = ch2.checkbox(tr("Astma:"))
+            serce = ch3.checkbox(tr("Choroby serca:"))
+            plecy = ch4.checkbox(tr("Problemy z kręgosłupem/stawami:"))
             
-            urazy = st.text_area("Opisz przebyte urazy, operacje i kontuzje:")
+            urazy = st.text_area(tr("Urazy/Kontuzje:"))
             
         with t2:
-            st.markdown("### Praca i odpoczynek")
+            st.markdown(f"### {tr('Styl życia')}")
             c1, c2 = st.columns(2)
-            praca = c1.selectbox("Charakter pracy", ["Siedząca (biuro)", "Fizyczna", "Mieszana", "Wymagająca stania"])
-            sen = c2.number_input("Średnia ilość snu (h)", 4.0, 12.0, 7.5)
+            praca = c1.selectbox(tr("Praca:"), ["Siedząca (biuro)", "Fizyczna", "Mieszana", "Wymagająca stania"])
+            sen = c2.number_input(tr("Średnia ilość snu (h)"), 4.0, 12.0, 7.5)
             
-            st.markdown("### Twój standardowy tydzień")
-            st.markdown("Ile czasu (w godzinach) możesz przeznaczyć na trening w poszczególne dni?")
+            st.markdown(f"### {tr('Harmonogram dostępności (godziny/dzień)')}")
             d1, d2, d3, d4, d5, d6, d7 = st.columns(7)
             t_pn = d1.number_input("PN", 0.0, 10.0, 1.0)
             t_wt = d2.number_input("WT", 0.0, 10.0, 1.0)
@@ -951,28 +1036,28 @@ def render_onboarding_view(zawodnik):
             t_nd = d7.number_input("ND", 0.0, 10.0, 2.0)
             
         with t3:
-            st.markdown("### Doświadczenie w sporcie")
-            lata_sport = st.number_input("Lata stażu w sportach wytrzymałościowych", 0, 50, 2)
-            cel_glowny = st.text_area("Jaki jest Twój główny cel na ten sezon? (np. Ukończyć 1/2 IM poniżej 5h)")
-            zawody_a = st.text_input("Główne Zawody (Wyścig kategorii A) - Nazwa i data")
+            st.markdown(f"### {tr('Cele i Doświadczenie')}")
+            lata_sport = st.number_input(tr("Staż w sportach:"), 0, 50, 2)
+            cel_glowny = st.text_area(tr("Cel główny:"))
+            zawody_a = st.text_input(tr("Główne zawody (Kategoria A):"))
             
         with t4:
-            st.markdown("### Dostęp do infrastruktury i sprzętu")
+            st.markdown(f"### {tr('Dostępny Sprzęt')}")
             c_s1, c_s2 = st.columns(2)
-            basen = c_s1.checkbox("🏊 Mam stały dostęp do basenu/wód otwartych")
-            silownia = c_s2.checkbox("🏋️ Mam dostęp do siłowni")
-            trenazer = c_s1.checkbox("🚴 Posiadam trenażer rowerowy (Smart)")
-            pomiar_mocy = c_s2.checkbox("⚡ Posiadam pomiar mocy w rowerze")
+            basen = c_s1.checkbox(f"🏊 {tr('Basen/Wody otwarte:')}")
+            silownia = c_s2.checkbox(f"🏋️ {tr('Siłownia:')}")
+            trenazer = c_s1.checkbox(f"🚴 {tr('Trenażer Smart:')}")
+            pomiar_mocy = c_s2.checkbox(f"⚡ {tr('Pomiar mocy:')}")
             
-            slabe_strony = st.text_area("Co uważasz za swoją najsłabszą dyscyplinę / element i dlaczego?")
+            slabe_strony = st.text_area(tr("Najsłabsze strony:"))
             
         with t5:
-            st.markdown("### Samoocena psychologiczna")
-            st.markdown("<span style='color:#8BA1B8;'>Oceń siebie w skali od 1 (Słabo) do 5 (Doskonale)</span>", unsafe_allow_html=True)
-            p1 = st.slider("Odporność na ból i dyskomfort", 1, 5, 3)
-            p2 = st.slider("Umiejętność koncentracji w stresie (podczas startu)", 1, 5, 3)
-            p3 = st.slider("Spójność i żelazna dyscyplina w treningu", 1, 5, 3)
-            p4 = st.slider("Zdolność do odpoczynku (bez poczucia winy, że nie trenujesz)", 1, 5, 3)
+            st.markdown(f"### {tr('Profil Psychologiczny (1-5)')}")
+            st.markdown(f"<span style='color:#8BA1B8;'>{tr('Oceń siebie w skali od 1 (Słabo) do 5 (Doskonale)')}</span>", unsafe_allow_html=True)
+            p1 = st.slider(tr("Odporność na ból:"), 1, 5, 3)
+            p2 = st.slider(tr("Koncentracja w stresie:"), 1, 5, 3)
+            p3 = st.slider(tr("Dyscyplina treningowa:"), 1, 5, 3)
+            p4 = st.slider(tr("Zdolność do odpoczynku:"), 1, 5, 3)
             
         st.markdown("<br>", unsafe_allow_html=True)
         submit_onboarding = st.form_submit_button("ZAPISZ MÓJ PROFIL I WEJDŹ DO APLIKACJI 🚀")
@@ -1106,30 +1191,30 @@ if menu == tr("Dodaj aktywność"):
     with col_side: render_tp_weekly_list(get_df(ja))
     with col_main:
         
-        with st.expander("🔄 Pobierz automatycznie z Garmin Connect", expanded=True):
-            st.markdown("<span style='color:#8BA1B8; font-size:0.9em;'>Aplikacja sama znajdzie Twoje ostatnie treningi w chmurze Garmina, pobierze ich ukryte pliki TCX i dokona pełnej analizy.</span>", unsafe_allow_html=True)
+        with st.expander(tr("🔄 Pobierz automatycznie z Garmin Connect"), expanded=True):
+            st.markdown(f"<span style='color:#8BA1B8; font-size:0.9em;'>{tr('Aplikacja sama znajdzie Twoje ostatnie treningi w chmurze Garmina, pobierze ich ukryte pliki TCX i dokona pełnej analizy.')}</span>", unsafe_allow_html=True)
             g_creds = db["garmin_creds"].get(ja, {})
             
             if g_creds.get("email") and g_creds.get("password"):
                 c_sync1, c_sync2 = st.columns([2, 1])
-                sync_limit = c_sync1.selectbox("Ile ostatnich aktywności sprawdzić?", [10, 30, 90])
-                if c_sync2.button("📥 Pobierz teraz"):
-                    with st.spinner(f"Łączenie z Garmin Connect i pobieranie {sync_limit} aktywności... (to potrwa kilkanaście sekund)"):
+                sync_limit = c_sync1.selectbox(tr("Ile ostatnich aktywności sprawdzić?"), [10, 30, 90])
+                if c_sync2.button(tr("📥 Pobierz teraz")):
+                    with st.spinner(f"{tr('Łączenie z Garmin Connect i pobieranie')} {sync_limit} {tr('aktywności... (to potrwa kilkanaście sekund)')}"):
                         try:
                             added = sync_from_garmin(ja, g_creds["email"], g_creds["password"], sync_limit)
                             if added > 0:
-                                st.success(f"Zakończono! Pomyślnie pobrano i zanalizowano {added} nowych treningów.")
+                                st.success(f"{tr('Zakończono! Pomyślnie pobrano i zanalizowano')} {added} {tr('nowych treningów.')}")
                                 st.balloons()
                             else:
-                                st.info("Wszystkie treningi z wybranego okresu są już w Twojej bazie Endura IQ. Nie znaleziono nowych.")
+                                st.info(tr("Wszystkie treningi z wybranego okresu są już w Twojej bazie Endura IQ. Nie znaleziono nowych."))
                             time.sleep(2)
                             st.rerun()
                         except Exception as e:
-                            st.error(f"Błąd synchronizacji: {str(e)}")
+                            st.error(f"{tr('Błąd synchronizacji:')} {str(e)}")
             else:
-                st.warning("⚠️ Zanim pobierzesz treningi, musisz podać dane logowania do Garmina w zakładce 'Dane zawodnika' -> 'Integracje 🔗'")
+                st.warning(tr("⚠️ Zanim pobierzesz treningi, musisz podać dane logowania do Garmina w zakładce 'Dane zawodnika' -> 'Integracje 🔗'"))
 
-        with st.expander("📂 Ręczne wgranie pliku (TCX)", expanded=False):
+        with st.expander(tr("📂 Ręczne wgranie pliku (TCX)"), expanded=False):
             up = st.file_uploader(tr("Wgraj plik z zegarka"), type=['tcx'])
             if 'form_data' not in st.session_state: st.session_state.form_data = {'date': date.today(), 'time': 45, 'dist': 5.0, 'tss': 30, 'sport': 'Bieganie', 'avg_power': 0, 'streams': None, 'laps': [], 'peak_powers': {}, 'best_times': {}}
             is_file_mode = False
@@ -1159,7 +1244,7 @@ if menu == tr("Dodaj aktywność"):
                 st.markdown("---")
                 st.markdown(f"### {tr('Ocena Treningu (RPE i Samopoczucie)')}")
                 c_rpe, c_feel = st.columns(2)
-                f_rpe = c_rpe.slider("RPE", 1, 10, 5)
+                f_rpe = c_rpe.slider(tr("RPE (Odczuwany wysiłek)"), 1, 10, 5)
                 f_feel = c_feel.select_slider(tr("Samopoczucie"), ["😫","😕","😐","🙂","🤩"], value="🙂")
                 f_comm = st.text_area(tr("Notatka dla Trenera"))
 
@@ -1283,6 +1368,7 @@ elif menu == tr("Kalendarz"):
                 "eventDisplay": "block"
             }
             
+            # WSTRZYKNIĘTY NOWY, EKSKLUZYWNY CSS DO RAMKI KALENDARZA
             cal = calendar(events=events, options=cal_options, custom_css=cal_css, key=f'cal_view_{target}', callbacks=['dateClick', 'eventClick', 'select'])
             
             if cal and isinstance(cal, dict):
@@ -1298,14 +1384,14 @@ elif menu == tr("Kalendarz"):
                         st.rerun()
             
             st.markdown("---")
-            st.markdown("### 🗓️ Zarządzaj Dniem")
+            st.markdown(f"### {tr('🗓️ Zarządzaj Dniem')}")
             
             try:
                 def_d = datetime.strptime(st.session_state.cal_click_date, "%Y-%m-%d").date()
             except:
                 def_d = date.today()
                 
-            c_date_obj = st.date_input("Wybierz datę (kliknij w kalendarzu u góry lub wpisz ręcznie):", value=def_d)
+            c_date_obj = st.date_input(tr("Wybierz datę (kliknij w kalendarzu u góry lub wpisz ręcznie):"), value=def_d)
             c_date = str(c_date_obj)
             st.session_state.cal_click_date = c_date
             
@@ -1313,18 +1399,18 @@ elif menu == tr("Kalendarz"):
             curr_note_text = curr_notes[0]['note'] if curr_notes else ""
             
             with st.form(key=f"note_form_{c_date}"):
-                st.markdown(f"<span style='color:#8BA1B8; font-size:0.9em;'>📌 Zostaw notatkę na dzień <b>{c_date}</b> (np. ograniczony czas, wyjazd):</span>", unsafe_allow_html=True)
-                note_input = st.text_input("Komentarz do dnia", value=curr_note_text)
-                if st.form_submit_button("Zapisz Notatkę"):
+                st.markdown(f"<span style='color:#8BA1B8; font-size:0.9em;'>{tr('📌 Zostaw notatkę na dzień')} <b>{c_date}</b> {tr('(np. ograniczony czas, wyjazd):')}</span>", unsafe_allow_html=True)
+                note_input = st.text_input(tr("Komentarz do dnia"), value=curr_note_text)
+                if st.form_submit_button(tr("Zapisz Notatkę")):
                     all_notes = list(db.get("day_notes", []))
                     all_notes = [n for n in all_notes if not (n['zawodnik'] == target and n['data'] == c_date)]
                     if note_input.strip():
                         all_notes.append({"zawodnik": target, "data": c_date, "note": note_input})
                     db["day_notes"] = all_notes
-                    st.success("Notatka przypięta do kalendarza!")
+                    st.success(tr("Notatka przypięta do kalendarza!"))
                     st.rerun()
             
-            with st.expander(f"🏆 Dodaj Zawody w dniu {c_date}"):
+            with st.expander(f"{tr('🏆 Dodaj Zawody w dniu')} {c_date}"):
                 with st.form("add_race_form_click"):
                     r_name = st.text_input(tr("Nazwa zawodów"), placeholder="Ironman Frankfurt")
                     if st.form_submit_button(tr("Zapisz")):
@@ -1332,14 +1418,14 @@ elif menu == tr("Kalendarz"):
                         st.success(tr("Dodano zawody!")); st.rerun()
 
             if st.session_state.role == "coach":
-                with st.expander(f"⚡ Zaplanuj Trening (Trener) - {c_date}"):
+                with st.expander(f"{tr('⚡ Zaplanuj Trening (Trener) -')} {c_date}"):
                     with st.form("plan_workout_click"):
                         p_sport = st.selectbox(tr("Dyscyplina"), ["Bieganie", "Rower", "Pływanie", "Siłownia"], format_func=tr)
-                        opts = ["-- Własny --"] + [s['nazwa'] for s in db.get("biblioteka", [])]
-                        p_temp = st.selectbox(tr("Wczytaj Szablon"), opts, format_func=tr)
+                        opts = [tr("-- Własny --")] + [s.get('nazwa',tr('Bez nazwy')) for s in db.get("biblioteka", [])]
+                        p_temp = st.selectbox(tr("Wczytaj Szablon"), opts)
                         def_title = f"{tr(p_sport)}"; def_time = 60; def_tss = 50; p_steps = []
-                        if p_temp != "-- Własny --":
-                            tmpl = next((x for x in db["biblioteka"] if x['nazwa']==p_temp), None)
+                        if p_temp != tr("-- Własny --"):
+                            tmpl = next((x for x in db["biblioteka"] if x.get('nazwa')==p_temp), None)
                             if tmpl: def_title = tmpl['nazwa']; def_time = sum([k['czas_total_sec'] for k in tmpl['kroki']]) // 60; p_steps = tmpl['kroki']
                         p_title = st.text_input(tr("Tytuł"), value=def_title)
                         c3, c4 = st.columns(2); p_time = c3.number_input(tr("Czas (min)"), value=def_time); p_tss = c4.number_input("Plan TSS", value=def_tss)
@@ -1424,7 +1510,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
     st.title(tr("Dane Zawodnika i Fizjologia"))
     sel_user = st.selectbox(tr("Zawodnik:"), ZAWODNICY, format_func=get_display_name) if st.session_state.role == "coach" else ja
     
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([tr("Profil Mocy (CP)"), tr("Rekordy Biegowe"), tr("Badania & Trendy"), tr("Waga"), "Integracje 🔗", "📝 Ankieta Profilowa"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([tr("Profil Mocy (CP)"), tr("Rekordy Biegowe"), tr("Badania & Trendy"), tr("Waga"), tr("Integracje 🔗"), tr("📝 Ankieta Profilowa")])
 
     with tab1:
         st.markdown(f"### {tr('Profil Mocy Rowerowej (Automatyczny)')}")
@@ -1535,69 +1621,69 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
         else: st.info(tr("Brak wpisów wagi w bazie."))
         
     with tab5:
-        st.markdown("### 🔵 Autoryzacja Garmin Connect")
-        st.markdown("<span style='color:#8BA1B8;'>Podaj dane logowania, aby aplikacja Endura IQ mogła automatycznie wysyłać zaplanowane treningi prosto do Twojego kalendarza w zegarku.</span>", unsafe_allow_html=True)
+        st.markdown(f"### {tr('🔵 Autoryzacja Garmin Connect')}")
+        st.markdown(f"<span style='color:#8BA1B8;'>{tr('Podaj dane logowania, aby aplikacja Endura IQ mogła automatycznie wysyłać zaplanowane treningi prosto do Twojego kalendarza w zegarku.')}</span>", unsafe_allow_html=True)
         creds = db["garmin_creds"].get(sel_user, {})
         with st.form("garmin_form"):
-            g_email = st.text_input("E-mail Garmin", value=creds.get("email", ""))
-            g_pass = st.text_input("Hasło Garmin", value=creds.get("password", ""), type="password")
-            if st.form_submit_button("Zapisz połączenie z chmurą"):
+            g_email = st.text_input(tr("E-mail Garmin"), value=creds.get("email", ""))
+            g_pass = st.text_input(tr("Hasło Garmin"), value=creds.get("password", ""), type="password")
+            if st.form_submit_button(tr("Zapisz połączenie z chmurą")):
                 temp_gc = db["garmin_creds"]
                 temp_gc[sel_user] = {"email": g_email, "password": g_pass}
                 db["garmin_creds"] = temp_gc
-                st.success("Zapisano dane. Od teraz możesz wysyłać treningi prosto z kalendarza!")
+                st.success(tr("Zapisano dane. Od teraz możesz wysyłać treningi prosto z kalendarza!"))
                 
     with tab6:
         sel_user_disp = get_display_name(sel_user)
-        st.markdown(f"### 📋 Profil Startowy (Ankieta): {sel_user_disp}")
+        st.markdown(f"### {tr('Profil Startowy (Ankieta):')} {sel_user_disp}")
         info = db["zawodnicy_info"].get(sel_user, {})
         
         if info and info.get("onboarded"):
-            st.markdown(f"<span style='color:#00E5FF; font-weight:bold;'>Data wypełnienia:</span> {info.get('data_wypelnienia')}", unsafe_allow_html=True)
+            st.markdown(f"<span style='color:#00E5FF; font-weight:bold;'>{tr('Data wypełnienia:')}</span> {info.get('data_wypelnienia')}", unsafe_allow_html=True)
             st.markdown("---")
             
             c_p1, c_p2, c_p3 = st.columns(3)
-            c_p1.markdown(f"**Wzrost:** {info.get('wzrost')} cm")
-            c_p2.markdown(f"**Waga:** {info.get('waga')} kg")
-            c_p3.markdown(f"**Tętno spoczynkowe:** {info.get('hr_rest')} BPM")
+            c_p1.markdown(f"**{tr('Wzrost:')}** {info.get('wzrost')} cm")
+            c_p2.markdown(f"**{tr('Waga:')}** {info.get('waga')} kg")
+            c_p3.markdown(f"**{tr('Tętno spoczynkowe:')}** {info.get('hr_rest')} BPM")
             
-            st.markdown("#### Zdrowie i Urazy")
+            st.markdown(f"#### {tr('Zdrowie i Urazy')}")
             choroby = info.get("choroby", {})
-            st.write(f"- Cukrzyca: {'✅' if choroby.get('cukrzyca') else '❌'}")
-            st.write(f"- Astma: {'✅' if choroby.get('astma') else '❌'}")
-            st.write(f"- Choroby serca: {'✅' if choroby.get('serce') else '❌'}")
-            st.write(f"- Problemy z kręgosłupem/stawami: {'✅' if choroby.get('plecy') else '❌'}")
-            st.markdown(f"**Urazy/Kontuzje:** {info.get('urazy', 'Brak')}")
+            st.write(f"- {tr('Cukrzyca:')} {'✅' if choroby.get('cukrzyca') else '❌'}")
+            st.write(f"- {tr('Astma:')} {'✅' if choroby.get('astma') else '❌'}")
+            st.write(f"- {tr('Choroby serca:')} {'✅' if choroby.get('serce') else '❌'}")
+            st.write(f"- {tr('Problemy z kręgosłupem/stawami:')} {'✅' if choroby.get('plecy') else '❌'}")
+            st.markdown(f"**{tr('Urazy/Kontuzje:')}** {info.get('urazy', tr('Brak'))}")
             
-            st.markdown("#### Styl życia")
-            st.write(f"**Praca:** {info.get('praca')} | **Średni sen:** {info.get('sen')} h")
+            st.markdown(f"#### {tr('Styl życia')}")
+            st.write(f"**{tr('Praca:')}** {info.get('praca')} | **{tr('Średni sen:')}** {info.get('sen')} h")
             
-            st.markdown("#### Harmonogram dostępności (godziny/dzień)")
+            st.markdown(f"#### {tr('Harmonogram dostępności (godziny/dzień)')}")
             ct = info.get("czas_trening", {})
             st.write(f"PN: {ct.get('PN')}h | WT: {ct.get('WT')}h | ŚR: {ct.get('SR')}h | CZ: {ct.get('CZ')}h | PT: {ct.get('PT')}h | SO: {ct.get('SO')}h | ND: {ct.get('ND')}h")
             
-            st.markdown("#### Cele i Doświadczenie")
-            st.write(f"**Staż w sportach:** {info.get('lata_sport')} lat")
-            st.write(f"**Cel główny:** {info.get('cel_glowny')}")
-            st.write(f"**Główne zawody (Kategoria A):** {info.get('zawody_a')}")
-            st.write(f"**Najsłabsze strony:** {info.get('slabe_strony')}")
+            st.markdown(f"#### {tr('Cele i Doświadczenie')}")
+            st.write(f"**{tr('Staż w sportach:')}** {info.get('lata_sport')} lat")
+            st.write(f"**{tr('Cel główny:')}** {info.get('cel_glowny')}")
+            st.write(f"**{tr('Główne zawody (Kategoria A):')}** {info.get('zawody_a')}")
+            st.write(f"**{tr('Najsłabsze strony:')}** {info.get('slabe_strony')}")
             
-            st.markdown("#### Dostępny Sprzęt")
+            st.markdown(f"#### {tr('Dostępny Sprzęt')}")
             sprzet = info.get("sprzet", {})
-            st.write(f"- Basen/Wody otwarte: {'✅' if sprzet.get('basen') else '❌'}")
-            st.write(f"- Siłownia: {'✅' if sprzet.get('silownia') else '❌'}")
-            st.write(f"- Trenażer Smart: {'✅' if sprzet.get('trenazer') else '❌'}")
-            st.write(f"- Pomiar mocy: {'✅' if sprzet.get('pomiar_mocy') else '❌'}")
+            st.write(f"- {tr('Basen/Wody otwarte:')} {'✅' if sprzet.get('basen') else '❌'}")
+            st.write(f"- {tr('Siłownia:')} {'✅' if sprzet.get('silownia') else '❌'}")
+            st.write(f"- {tr('Trenażer Smart:')} {'✅' if sprzet.get('trenazer') else '❌'}")
+            st.write(f"- {tr('Pomiar mocy:')} {'✅' if sprzet.get('pomiar_mocy') else '❌'}")
             
-            st.markdown("#### Profil Psychologiczny (1-5)")
+            st.markdown(f"#### {tr('Profil Psychologiczny (1-5)')}")
             psy = info.get("psychologia", {})
-            st.write(f"- Odporność na ból: **{psy.get('bol')}/5**")
-            st.write(f"- Koncentracja w stresie: **{psy.get('stres')}/5**")
-            st.write(f"- Dyscyplina treningowa: **{psy.get('dyscyplina')}/5**")
-            st.write(f"- Zdolność do odpoczynku: **{psy.get('odpoczynek')}/5**")
+            st.write(f"- {tr('Odporność na ból:')} **{psy.get('bol')}/5**")
+            st.write(f"- {tr('Koncentracja w stresie:')} **{psy.get('stres')}/5**")
+            st.write(f"- {tr('Dyscyplina treningowa:')} **{psy.get('dyscyplina')}/5**")
+            st.write(f"- {tr('Zdolność do odpoczynku:')} **{psy.get('odpoczynek')}/5**")
 
         else:
-            st.info("Ten zawodnik nie wypełnił jeszcze ankiety startowej.")
+            st.info(tr("Ten zawodnik nie wypełnił jeszcze ankiety startowej."))
 
 # --- 5. RAPORTY PDF ---
 elif menu == tr("Raporty"):
@@ -1662,27 +1748,27 @@ elif menu == tr("Kreator"):
     if 'loaded_template_name' not in st.session_state: st.session_state['loaded_template_name'] = ""
     
     with c1:
-        opts = ["-- Własny --"] + [s.get('nazwa','Bez nazwy') for s in db.get("biblioteka", [])]
-        load = st.selectbox(tr("Szablon / Fragment"), opts, format_func=tr)
+        opts = [tr("-- Własny --")] + [s.get('nazwa',tr('Bez nazwy')) for s in db.get("biblioteka", [])]
+        load = st.selectbox(tr("Szablon / Fragment"), opts)
         
-        if load != "-- Własny --":
+        if load != tr("-- Własny --"):
             col_l1, col_l2, col_l3 = st.columns(3)
-            if col_l1.button("🔄 Zastąp"): 
+            if col_l1.button(tr("🔄 Zastąp")): 
                 tmpl = next((x for x in db["biblioteka"] if x['nazwa']==load), None)
                 if tmpl:
                     st.session_state['pro_steps'] = list(tmpl['kroki'])
                     st.session_state['loaded_template_name'] = tmpl['nazwa']
                     st.rerun()
-            if col_l2.button("➕ Doklej"):
+            if col_l2.button(tr("➕ Doklej")):
                 tmpl = next((x for x in db["biblioteka"] if x['nazwa']==load), None)
                 if tmpl:
                     st.session_state['pro_steps'].extend(list(tmpl['kroki']))
                     st.rerun()
-            if col_l3.button("🗑️ Usuń"):
+            if col_l3.button(tr("🗑️ Usuń")):
                 db["biblioteka"] = [x for x in db.get("biblioteka", []) if x['nazwa'] != load]
                 if st.session_state['loaded_template_name'] == load:
                     st.session_state['loaded_template_name'] = ""
-                st.success("Usunięto!")
+                st.success(tr("Usunięto!"))
                 time.sleep(1)
                 st.rerun()
                 
@@ -1764,16 +1850,16 @@ elif menu == tr("Kreator"):
             
             with st.form("sv"): 
                 n = st.text_input(tr("Nazwa"), value=st.session_state['loaded_template_name'])
-                if st.form_submit_button("💾 Zapisz / Aktualizuj"): 
+                if st.form_submit_button(tr("💾 Zapisz / Aktualizuj")): 
                     if n:
                         lib = list(db.get("biblioteka", []))
                         existing_idx = next((i for i, x in enumerate(lib) if x['nazwa'] == n), -1)
                         if existing_idx >= 0:
                             lib[existing_idx] = {"nazwa": n, "kroki": st.session_state['pro_steps'], "dyscyplina": sport_creator}
-                            msg = "Zaktualizowano istniejący szablon!"
+                            msg = tr("Zaktualizowano istniejący szablon!")
                         else:
                             lib.append({"nazwa": n, "kroki": st.session_state['pro_steps'], "dyscyplina": sport_creator})
-                            msg = "Zapisano nowy szablon!"
+                            msg = tr("Zapisano nowy szablon!")
                         
                         db["biblioteka"] = lib
                         st.success(msg)
