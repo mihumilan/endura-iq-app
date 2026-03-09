@@ -214,7 +214,9 @@ TRANSLATIONS = {
         "Utwórz konto": "Create Account",
         "Użytkownik o takim loginie już istnieje. Wybierz inny!": "Username already exists. Choose another!",
         "Wypełnij poprawnie wszystkie pola (Login i Imię min. 3 znaki, Hasło min. 4, poprawny email).": "Fill all fields correctly (Username and Name min 3 chars, Password min 4 chars, valid email).",
-        "Konto utworzone! Możesz się teraz zalogować w zakładce obok.": "Account created! You can now log in on the adjacent tab."
+        "Konto utworzone! Możesz się teraz zalogować w zakładce obok.": "Account created! You can now log in on the adjacent tab.",
+        "Próg Tempo (MM:SS/km)": "Threshold Pace (MM:SS/km)",
+        "Próg Tempo (MM:SS/100m)": "Threshold Pace (MM:SS/100m)"
     }
 }
 
@@ -242,11 +244,9 @@ def inject_custom_css():
         .tp-row { display: flex; justify-content: space-between; margin-bottom: 8px; color: #E2E8F0; font-weight: 600;}
         .tp-stat-line { display: flex; justify-content: space-between; color: #8BA1B8; font-size: 0.9em; margin-top: 4px; }
         
-        /* GŁÓWNY STYL PRZYCISKÓW */
         div.stButton > button { background: linear-gradient(90deg, #00B4D8 0%, #00E5FF 100%); color: #05070A !important; border-radius: 8px; font-weight: 800; border: none; width: 100%; padding: 12px; text-transform: uppercase; letter-spacing: 0.5px; transition: all 0.3s ease; }
         div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,229,255,0.3); }
         
-        /* SPECJALNY STYL DLA PRZYCISKU WYLOGUJ W PANELU BOCZNYM */
         section[data-testid="stSidebar"] div.stButton > button {
             background: transparent !important;
             color: #8BA1B8 !important;
@@ -379,15 +379,18 @@ def calculate_compliance(df):
 
 def calculate_time_in_zones_custom(stream, zone_defs, total_time_mins):
     if not stream or not zone_defs: return []
-    zs = [{"label": str(z.get("Strefa", "")), "max": float(z.get("Max", 0)), "count": 0} for z in zone_defs]
-    
+    try:
+        zs = [{"label": str(z.get("Strefa", "")), "max": float(z.get("Max", 0)), "count": 0} for z in zone_defs]
+    except ValueError:
+        # Zabezpieczenie: jeśli ktoś skonfigurował strefy jako tekst (Tempo "4:30") a tu wpadną waty, nie wywali się.
+        return []
+        
     valid = []
     for x in stream:
         if x is not None:
             try:
                 v = float(x)
-                if not np.isnan(v):
-                    valid.append(v)
+                if not np.isnan(v): valid.append(v)
             except: pass
             
     if not valid: return []
@@ -442,9 +445,31 @@ def pace_str_to_float(pace_str):
 def float_to_pace_str(val):
     m=int(val); return f"{m}:{int((val-m)*60):02d}"
 
-def generuj_domyslne_strefy(ftp, lthr):
-    p_zones = [{"Strefa": f"Z{i+1}", "Min": int(p_prev + (1 if i>0 else 0)), "Max": int(m*ftp)} for i, (m, p_prev) in enumerate(zip([0.55, 0.75, 0.90, 1.05, 1.20, 5.0], [0] + [int(x*ftp) for x in [0.55, 0.75, 0.90, 1.05, 1.20]]))]
+def pace_to_sec(p):
+    try:
+        parts = str(p).replace(',', ':').replace('.', ':').split(':')
+        if len(parts) == 2:
+            return int(parts[0]) * 60 + int(parts[1])
+        return int(p)
+    except: return 240
+
+def sec_to_pace(s):
+    s = max(0, int(s))
+    m = s // 60
+    sec = s % 60
+    return f"{m}:{sec:02d}"
+
+def generuj_domyslne_strefy(ftp_val, lthr, is_pace=False):
     h_zones = [{"Strefa": f"Z{i+1}", "Min": int(h_prev + (1 if i>0 else 0)), "Max": int(m*lthr)} for i, (m, h_prev) in enumerate(zip([0.81, 0.89, 0.93, 0.99, 1.02, 1.2], [0] + [int(x*lthr) for x in [0.81, 0.89, 0.93, 0.99, 1.02]]))]
+    
+    if is_pace:
+        t_sec = pace_to_sec(ftp_val)
+        muls = [(1.50, 1.29), (1.28, 1.14), (1.13, 1.06), (1.05, 0.99), (0.98, 0.90), (0.89, 0.50)]
+        p_zones = [{"Strefa": f"Z{i+1}", "Min": sec_to_pace(t_sec * m_slow), "Max": sec_to_pace(t_sec * m_fast)} for i, (m_slow, m_fast) in enumerate(muls)]
+        return pd.DataFrame(p_zones), pd.DataFrame(h_zones)
+        
+    ftp = int(ftp_val) if ftp_val else 250
+    p_zones = [{"Strefa": f"Z{i+1}", "Min": int(p_prev + (1 if i>0 else 0)), "Max": int(m*ftp)} for i, (m, p_prev) in enumerate(zip([0.55, 0.75, 0.90, 1.05, 1.20, 5.0], [0] + [int(x*ftp) for x in [0.55, 0.75, 0.90, 1.05, 1.20]]))]
     return pd.DataFrame(p_zones), pd.DataFrame(h_zones)
 
 def get_user_zones(zawodnik, dyscyplina="Rower"):
@@ -454,18 +479,16 @@ def get_user_zones(zawodnik, dyscyplina="Rower"):
     if "ftp" in all_zones and "Rower" not in all_zones:
         old_ftp = all_zones.get("ftp", 250)
         old_lthr = all_zones.get("lthr", 170)
-        old_zp = all_zones.get("zones_pwr")
-        old_zh = all_zones.get("zones_hr")
-        if not old_zp or not old_zh:
-            zp, zh = generuj_domyslne_strefy(old_ftp, old_lthr)
-            old_zp = zp.to_dict('records'); old_zh = zh.to_dict('records')
+        old_zp, old_zh = generuj_domyslne_strefy(old_ftp, old_lthr)
+        zp_run, _ = generuj_domyslne_strefy("4:30", old_lthr, is_pace=True)
+        zp_swim, _ = generuj_domyslne_strefy("1:45", old_lthr, is_pace=True)
         
         migrated_zones = {
-            "Rower": {"ftp": old_ftp, "lthr": old_lthr, "zones_pwr": old_zp, "zones_hr": old_zh},
-            "Bieganie": {"ftp": old_ftp, "lthr": old_lthr, "zones_pwr": old_zp, "zones_hr": old_zh},
-            "Pływanie": {"ftp": old_ftp, "lthr": old_lthr, "zones_pwr": old_zp, "zones_hr": old_zh},
-            "Siłownia": {"ftp": old_ftp, "lthr": old_lthr, "zones_pwr": old_zp, "zones_hr": old_zh},
-            "Inne": {"ftp": old_ftp, "lthr": old_lthr, "zones_pwr": old_zp, "zones_hr": old_zh}
+            "Rower": {"ftp": old_ftp, "lthr": old_lthr, "zones_pwr": old_zp.to_dict('records'), "zones_hr": old_zh.to_dict('records')},
+            "Bieganie": {"ftp": "4:30", "lthr": old_lthr, "zones_pwr": zp_run.to_dict('records'), "zones_hr": old_zh.to_dict('records')},
+            "Pływanie": {"ftp": "1:45", "lthr": old_lthr, "zones_pwr": zp_swim.to_dict('records'), "zones_hr": old_zh.to_dict('records')},
+            "Siłownia": {"ftp": old_ftp, "lthr": old_lthr, "zones_pwr": old_zp.to_dict('records'), "zones_hr": old_zh.to_dict('records')},
+            "Inne": {"ftp": old_ftp, "lthr": old_lthr, "zones_pwr": old_zp.to_dict('records'), "zones_hr": old_zh.to_dict('records')}
         }
         temp_db = db["strefy"]
         temp_db[zawodnik] = migrated_zones
@@ -473,9 +496,12 @@ def get_user_zones(zawodnik, dyscyplina="Rower"):
         all_zones = migrated_zones
         
     disc_zones = all_zones.get(dyscyplina, {})
-    if not disc_zones:
-        zp, zh = generuj_domyslne_strefy(250, 170)
-        disc_zones = {"ftp": 250, "lthr": 170, "zones_pwr": zp.to_dict('records'), "zones_hr": zh.to_dict('records')}
+    is_pace = dyscyplina in ["Bieganie", "Pływanie"]
+    
+    if not disc_zones or (is_pace and isinstance(disc_zones.get("ftp", 250), (int, float))):
+        def_ftp = "4:30" if dyscyplina == "Bieganie" else ("1:45" if dyscyplina == "Pływanie" else 250)
+        zp, zh = generuj_domyslne_strefy(def_ftp, 170, is_pace=is_pace)
+        disc_zones = {"ftp": def_ftp, "lthr": 170, "zones_pwr": zp.to_dict('records'), "zones_hr": zh.to_dict('records')}
         temp_db = db["strefy"]
         if zawodnik not in temp_db: temp_db[zawodnik] = {}
         temp_db[zawodnik][dyscyplina] = disc_zones
@@ -569,7 +595,10 @@ def send_workout_to_garmin_connect(email, password, workout_data):
     
     zawodnik = workout_data.get('zawodnik')
     user_zones = db["strefy"].get(zawodnik, {}).get(sport_str, {})
-    ftp = user_zones.get('ftp', 250)
+    
+    raw_ftp = user_zones.get('ftp', 250)
+    try: ftp = float(raw_ftp)
+    except: ftp = 250
     
     steps = []
     total_intervals = sum(1 for k in workout_data.get('kroki', []) if k.get('typ') == 'Interwał')
@@ -741,7 +770,10 @@ def parse_tcx_pro(file_obj, user_zones):
 
     avg_pwr = int(np.nanmean([x for x in streams['watts'] if x is not None])) if any(x is not None for x in streams['watts']) else 0
     np_val = calculate_normalized_power(streams['watts'])
-    ftp = user_zones.get(sport, {}).get('ftp', 250)
+    
+    raw_ftp = user_zones.get(sport, {}).get('ftp', 250)
+    try: ftp = float(raw_ftp)
+    except: ftp = 250
     
     tss_val = 0
     if np_val > 0 and ftp > 0:
@@ -856,15 +888,6 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
         added_count += 1
         
     return added_count
-
-def is_valid_stream(s):
-    if not s: return False
-    for x in s:
-        if x is not None:
-            try:
-                if float(x) > 0: return True
-            except: pass
-    return False
 
 def przygotuj_kalendarz(zawodnik):
     events = []; df = get_df(zawodnik if zawodnik != tr("Wszyscy") else None)
@@ -1043,7 +1066,14 @@ def render_analysis_dashboard(t, user_settings, unique_key=""):
             st.markdown(f"### {tr('📊 Czas w strefach')}")
             cz1, cz2 = st.columns(2)
             
-            if has_pwr and user_settings.get("zones_pwr"):
+            valid_pwr_zones = True
+            if user_settings.get("zones_pwr") and len(user_settings["zones_pwr"]) > 0:
+                try:
+                    float(user_settings["zones_pwr"][0].get("Max", 0))
+                except:
+                    valid_pwr_zones = False
+                    
+            if has_pwr and user_settings.get("zones_pwr") and valid_pwr_zones:
                 z_pwr = calculate_time_in_zones_custom(streams['watts'], user_settings["zones_pwr"], t.get('czas', 0))
                 if z_pwr:
                     df_zp = pd.DataFrame(z_pwr)
@@ -1846,14 +1876,21 @@ elif menu == tr("Strefy"):
     
     sel_disc = st.selectbox(tr("Dyscyplina"), ["Rower", "Bieganie", "Pływanie", "Siłownia", "Inne"], format_func=tr)
     user_data = get_user_zones(sel_user, sel_disc)
+    is_pace = sel_disc in ["Bieganie", "Pływanie"]
     
     c1, c2, c3 = st.columns(3)
-    new_ftp = c1.number_input("FTP (W)", value=int(user_data.get("ftp", 250)))
+    if is_pace:
+        label = tr("Próg Tempo (MM:SS/km)") if sel_disc == "Bieganie" else tr("Próg Tempo (MM:SS/100m)")
+        new_ftp = c1.text_input(label, value=str(user_data.get("ftp", "4:30" if sel_disc == "Bieganie" else "1:45")))
+    else:
+        new_ftp = c1.number_input("FTP (W)", value=int(user_data.get("ftp", 250)))
+        
     new_lthr = c2.number_input("LTHR (BPM)", value=int(user_data.get("lthr", 170)))
     
     if c3.button(tr("Przelicz / Zresetuj")): 
-        user_data["zones_pwr"] = generuj_domyslne_strefy(new_ftp, new_lthr)[0].to_dict('records')
-        user_data["zones_hr"] = generuj_domyslne_strefy(new_ftp, new_lthr)[1].to_dict('records')
+        zp, zh = generuj_domyslne_strefy(new_ftp, new_lthr, is_pace=is_pace)
+        user_data["zones_pwr"] = zp.to_dict('records')
+        user_data["zones_hr"] = zh.to_dict('records')
         user_data["ftp"] = new_ftp
         user_data["lthr"] = new_lthr
         
@@ -1864,8 +1901,12 @@ elif menu == tr("Strefy"):
         st.rerun()
         
     c1, c2 = st.columns(2)
-    with c1: st.subheader(tr("Moc")); edited_pwr = st.data_editor(pd.DataFrame(user_data["zones_pwr"]), column_order=["Strefa", "Min", "Max"], hide_index=True, key=f"pwr_{sel_user}_{sel_disc}")
-    with c2: st.subheader(tr("Tętno")); edited_hr = st.data_editor(pd.DataFrame(user_data["zones_hr"]), column_order=["Strefa", "Min", "Max"], hide_index=True, key=f"hr_{sel_user}_{sel_disc}")
+    with c1: 
+        st.subheader(tr("Tempo") if is_pace else tr("Moc"))
+        edited_pwr = st.data_editor(pd.DataFrame(user_data["zones_pwr"]), column_order=["Strefa", "Min", "Max"], hide_index=True, key=f"pwr_{sel_user}_{sel_disc}")
+    with c2: 
+        st.subheader(tr("Tętno"))
+        edited_hr = st.data_editor(pd.DataFrame(user_data["zones_hr"]), column_order=["Strefa", "Min", "Max"], hide_index=True, key=f"hr_{sel_user}_{sel_disc}")
     
     if st.button(tr("Zapisz Zmiany")): 
         user_data["zones_pwr"] = edited_pwr.to_dict('records')
