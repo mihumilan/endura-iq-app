@@ -216,7 +216,28 @@ TRANSLATIONS = {
         "Wypełnij poprawnie wszystkie pola (Login i Imię min. 3 znaki, Hasło min. 4, poprawny email).": "Fill all fields correctly (Username and Name min 3 chars, Password min 4 chars, valid email).",
         "Konto utworzone! Możesz się teraz zalogować w zakładce obok.": "Account created! You can now log in on the adjacent tab.",
         "Próg Tempo (MM:SS/km)": "Threshold Pace (MM:SS/km)",
-        "Próg Tempo (MM:SS/100m)": "Threshold Pace (MM:SS/100m)"
+        "Próg Tempo (MM:SS/100m)": "Threshold Pace (MM:SS/100m)",
+        "📊 Historia": "📊 History",
+        "Historia treningowa": "Training History",
+        "Średnia objętość (ostatnie 3 miesiące) [godz/tydz]:": "Average volume (last 3 months) [hours/week]:",
+        "Aktualne / Szacowane Wartości (wpisz 0 jeśli nie znasz)": "Current / Estimated Values (enter 0 if unknown)",
+        "Szacowane FTP (W):": "Estimated FTP (W):",
+        "Próg Mleczanowy - LTHR (BPM):": "Lactate Threshold - LTHR (BPM):",
+        "Tętno Maksymalne (BPM):": "Max HR (BPM):",
+        "Gotowość na Tydzień Testowy:": "Readiness for Testing Week:",
+        "Testy wyznaczające dokładne strefy i krzywą profilu mocy (m.in. sprint 5s, 1min, 5min, 20min).": "Tests to determine precise zones and power profile curve (e.g., 5s sprint, 1m, 5m, 20m).",
+        "Tak, zróbmy pełne testy (Profil Mocy: 5s, 1m, 5m, 20m + bieganie)": "Yes, let's do full tests (Power Profile: 5s, 1m, 5m, 20m + run)",
+        "Nie, mam aktualne badania/wyniki": "No, I have recent test results/baselines",
+        "Zdam się na decyzję trenera": "I'll leave it to the coach",
+        "Oczekiwania wobec trenera": "Expectations from Coach",
+        "Preferowany styl komunikacji:": "Preferred communication style:",
+        "Zbalansowany (dane + wsparcie)": "Balanced (data + support)",
+        "Tylko suche dane i analiza": "Strictly data and analysis",
+        "Dużo motywacji i wsparcia mentalnego": "High motivation & mental support",
+        "Historia i Parametry Wyjściowe": "History & Baseline Metrics",
+        "Tydzień Testowy:": "Testing Week:",
+        "Komunikacja:": "Communication:",
+        "Średnia objętość:": "Avg Volume:"
     }
 }
 
@@ -382,7 +403,6 @@ def calculate_time_in_zones_custom(stream, zone_defs, total_time_mins):
     try:
         zs = [{"label": str(z.get("Strefa", "")), "max": float(z.get("Max", 0)), "count": 0} for z in zone_defs]
     except ValueError:
-        # Zabezpieczenie: jeśli ktoś skonfigurował strefy jako tekst (Tempo "4:30") a tu wpadną waty, nie wywali się.
         return []
         
     valid = []
@@ -1172,7 +1192,7 @@ def render_onboarding_view(zawodnik):
     st.markdown(f"<h4 style='text-align:center; color:#8BA1B8; margin-bottom: 30px;'>{tr('Zanim ułożymy Twój pierwszy plan, musimy się lepiej poznać. Przejdź przez krótki formularz, a my zajmiemy się resztą.')}</h4>", unsafe_allow_html=True)
     
     with st.form("onboarding_wizard"):
-        t1, t2, t3, t4, t5 = st.tabs([tr("❤️ Zdrowie"), tr("⏱️ Styl Życia"), tr("🎯 Cele"), tr("🚴 Sprzęt"), tr("🧠 Psychologia")])
+        t1, t2, t3, t4, t5, t6 = st.tabs([tr("❤️ Zdrowie"), tr("⏱️ Styl Życia"), tr("🎯 Cele"), tr("🚴 Sprzęt"), tr("📊 Historia"), tr("🧠 Psychologia")])
         
         with t1:
             st.markdown(f"### {tr('Podstawowe parametry')}")
@@ -1224,12 +1244,39 @@ def render_onboarding_view(zawodnik):
             slabe_strony = st.text_area(tr("Najsłabsze strony:"))
             
         with t5:
+            st.markdown(f"### {tr('Historia treningowa')}")
+            avg_vol = st.number_input(tr("Średnia objętość (ostatnie 3 miesiące) [godz/tydz]:"), 0.0, 40.0, 5.0, 0.5)
+            
+            st.markdown(f"### {tr('Aktualne / Szacowane Wartości (wpisz 0 jeśli nie znasz)')}")
+            c_hist1, c_hist2, c_hist3 = st.columns(3)
+            est_ftp = c_hist1.number_input(tr("Szacowane FTP (W):"), 0, 500, 0)
+            est_lthr = c_hist2.number_input(tr("Próg Mleczanowy - LTHR (BPM):"), 0, 220, 0)
+            est_maxhr = c_hist3.number_input(tr("Tętno Maksymalne (BPM):"), 0, 250, 0)
+            
+            st.markdown("---")
+            st.markdown(f"### {tr('Gotowość na Tydzień Testowy:')}")
+            st.markdown(f"<span style='color:#8BA1B8; font-size:0.9em;'>{tr('Testy wyznaczające dokładne strefy i krzywą profilu mocy (m.in. sprint 5s, 1min, 5min, 20min).')}</span>", unsafe_allow_html=True)
+            test_week = st.selectbox("", [
+                tr("Tak, zróbmy pełne testy (Profil Mocy: 5s, 1m, 5m, 20m + bieganie)"),
+                tr("Nie, mam aktualne badania/wyniki"),
+                tr("Zdam się na decyzję trenera")
+            ], label_visibility="collapsed")
+            
+        with t6:
             st.markdown(f"### {tr('Profil Psychologiczny (1-5)')}")
             st.markdown(f"<span style='color:#8BA1B8;'>{tr('Oceń siebie w skali od 1 (Słabo) do 5 (Doskonale)')}</span>", unsafe_allow_html=True)
             p1 = st.slider(tr("Odporność na ból:"), 1, 5, 3)
             p2 = st.slider(tr("Koncentracja w stresie:"), 1, 5, 3)
             p3 = st.slider(tr("Dyscyplina treningowa:"), 1, 5, 3)
             p4 = st.slider(tr("Zdolność do odpoczynku:"), 1, 5, 3)
+            
+            st.markdown("---")
+            st.markdown(f"### {tr('Oczekiwania wobec trenera')}")
+            comm_style = st.selectbox(tr("Preferowany styl komunikacji:"), [
+                tr("Zbalansowany (dane + wsparcie)"),
+                tr("Tylko suche dane i analiza"),
+                tr("Dużo motywacji i wsparcia mentalnego")
+            ])
             
         st.markdown("<br>", unsafe_allow_html=True)
         submit_onboarding = st.form_submit_button("ZAPISZ MÓJ PROFIL I WEJDŹ DO APLIKACJI 🚀")
@@ -1246,6 +1293,8 @@ def render_onboarding_view(zawodnik):
                 "sprzet": {"basen": basen, "trenazer": trenazer, "pomiar_mocy": pomiar_mocy, "silownia": silownia},
                 "slabe_strony": slabe_strony,
                 "psychologia": {"bol": p1, "stres": p2, "dyscyplina": p3, "odpoczynek": p4},
+                "historia": {"avg_vol": avg_vol, "est_ftp": est_ftp, "est_lthr": est_lthr, "est_maxhr": est_maxhr, "test_week": test_week},
+                "komunikacja": comm_style,
                 "data_wypelnienia": str(date.today())
             }
             
@@ -1817,6 +1866,12 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
             c_p2.markdown(f"**{tr('Waga:')}** {info.get('waga')} kg")
             c_p3.markdown(f"**{tr('Tętno spoczynkowe:')}** {info.get('hr_rest')} BPM")
             
+            st.markdown(f"#### {tr('Historia i Parametry Wyjściowe')}")
+            hist = info.get("historia", {})
+            st.write(f"- {tr('Średnia objętość:')} **{hist.get('avg_vol', 0)} h/tydz**")
+            st.write(f"- {tr('Szacowane FTP:')} **{hist.get('est_ftp', 0)} W** | LTHR: **{hist.get('est_lthr', 0)} BPM** | Max HR: **{hist.get('est_maxhr', 0)} BPM**")
+            st.write(f"- {tr('Tydzień Testowy:')} **{hist.get('test_week', tr('Brak'))}**")
+            
             st.markdown(f"#### {tr('Zdrowie i Urazy')}")
             choroby = info.get("choroby", {})
             st.write(f"- {tr('Cukrzyca:')} {'✅' if choroby.get('cukrzyca') else '❌'}")
@@ -1851,6 +1906,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
             st.write(f"- {tr('Koncentracja w stresie:')} **{psy.get('stres')}/5**")
             st.write(f"- {tr('Dyscyplina treningowa:')} **{psy.get('dyscyplina')}/5**")
             st.write(f"- {tr('Zdolność do odpoczynku:')} **{psy.get('odpoczynek')}/5**")
+            st.write(f"- {tr('Komunikacja:')} **{info.get('komunikacja', tr('Zbalansowany (dane + wsparcie)'))}**")
 
         else:
             st.info(tr("Ten zawodnik nie wypełnił jeszcze ankiety startowej."))
@@ -2039,7 +2095,7 @@ elif menu == tr("Kreator"):
                             lib[existing_idx] = {"nazwa": n, "kroki": st.session_state['pro_steps'], "dyscyplina": sport_creator}
                             msg = tr("Zaktualizowano istniejący szablon!")
                         else:
-                            lib.append({"nazwa": n, "kroki": st.session_state['pro_steps'], "dyscyplina": sport_creator})
+                            lib.append({"nazwa": n, "kroki": st.session_state['pro_steps'], "dyscyplina": sport_creator}
                             msg = tr("Zapisano nowy szablon!")
                         
                         db["biblioteka"] = lib
