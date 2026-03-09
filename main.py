@@ -206,7 +206,7 @@ TRANSLATIONS = {
         "⚠️ Błąd logowania! Sprawdź czy e-mail/hasło są poprawne. Upewnij się też, że na koncie Garmin masz wyłączoną weryfikację dwuetapową (2FA).": "⚠️ Login error! Check if email/password are correct. Make sure 2FA is disabled on your Garmin account.",
         "⚠️ Błąd integracji:": "⚠️ Integration error:",
         
-        # TLUMACZENIA EKRANU LOGOWANIA
+        # TŁUMACZENIA EKRANU LOGOWANIA
         "Logowanie": "Log In",
         "Rejestracja": "Sign Up",
         "Dołącz do Endura IQ i rozpocznij swoją profesjonalną drogę.": "Join Endura IQ and start your professional journey.",
@@ -243,7 +243,7 @@ def inject_custom_css():
         .tp-row { display: flex; justify-content: space-between; margin-bottom: 8px; color: #E2E8F0; font-weight: 600;}
         .tp-stat-line { display: flex; justify-content: space-between; color: #8BA1B8; font-size: 0.9em; margin-top: 4px; }
         
-        /* Glowny styl przyciskow */
+        /* GŁÓWNY STYL PRZYCISKÓW */
         div.stButton > button { background: linear-gradient(90deg, #00B4D8 0%, #00E5FF 100%); color: #05070A !important; border-radius: 8px; font-weight: 800; border: none; width: 100%; padding: 12px; text-transform: uppercase; letter-spacing: 0.5px; transition: all 0.3s ease; }
         div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,229,255,0.3); }
         
@@ -418,7 +418,7 @@ def calculate_time_in_zones_custom(stream, zone_defs, total_time_mins):
 def render_zone_chart_robust(df_z, title):
     max_v = df_z['mins'].max()
     max_v = float(max_v) if pd.notna(max_v) else 0.0
-    if max_v <= 0: max_v = 1.0 # Bezpiecznik
+    if max_v <= 0: max_v = 1.0 
     
     fig = go.Figure(go.Bar(
         x=df_z['mins'].astype(float),
@@ -432,7 +432,7 @@ def render_zone_chart_robust(df_z, title):
     fig.update_layout(
         title=title,
         yaxis=dict(categoryorder='array', categoryarray=df_z['label'].astype(str).tolist()[::-1]),
-        xaxis=dict(range=[0, max_v * 1.15]), # Twarde wymuszenie startu od 0
+        xaxis=dict(range=[0, max_v * 1.15]), 
         template="plotly_dark",
         showlegend=False,
         height=250,
@@ -509,6 +509,20 @@ def save_data(new_entry):
     st.session_state.session_treningi.append(new_entry)
     db["treningi"] = list(db["treningi"]) + [new_entry]
 
+def add_comment_to_workout(zawodnik, data_str, tytul, dyscyplina, autor, tresc):
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    new_comment = {"autor": autor, "data": now_str, "tresc": tresc}
+    for w in st.session_state.session_treningi:
+        if w.get('zawodnik') == zawodnik and str(w.get('data')) == str(data_str) and w.get('tytul') == tytul and w.get('dyscyplina') == dyscyplina:
+            if 'komentarze_treningu' not in w: w['komentarze_treningu'] = []
+            w['komentarze_treningu'].append(new_comment)
+    temp_db = list(db["treningi"])
+    for w in temp_db:
+        if w.get('zawodnik') == zawodnik and str(w.get('data')) == str(data_str) and w.get('tytul') == tytul and w.get('dyscyplina') == dyscyplina:
+            if 'komentarze_treningu' not in w: w['komentarze_treningu'] = []
+            w['komentarze_treningu'].append(new_comment)
+    db["treningi"] = temp_db
+
 def get_df(zawodnik=None):
     data = st.session_state.session_treningi
     if not data: return pd.DataFrame()
@@ -564,7 +578,8 @@ def send_workout_to_garmin_connect(email, password, workout_data):
     ftp = user_zones.get('ftp', 250)
     
     steps = []
-    # Zliczanie interwałów do prawidłowego nazewnictwa na zegarku (np. 1/20, 2/20)
+    
+    # Przeliczanie ilości interwałów do opisu zegarka
     total_intervals = sum(1 for k in workout_data.get('kroki', []) if k.get('typ') == 'Interwał')
     interval_count = 1
     
@@ -604,7 +619,6 @@ def send_workout_to_garmin_connect(email, password, workout_data):
             t_val1 = round(min(speed1, speed2), 3)
             t_val2 = round(max(speed1, speed2), 3)
             
-        # Dodawanie licznika powtórzeń do opisu tarczy zegarka
         prefix = ""
         if typ_str == "Interwał" and total_intervals > 1:
             prefix = f"[{interval_count}/{total_intervals}] "
@@ -650,6 +664,96 @@ def send_workout_to_garmin_connect(email, password, workout_data):
         return True, tr("Zrobione! Trening jest gotowy. Twój zegarek będzie pilnował intensywności.")
     else:
         return False, f"{tr('Błąd po stronie serwerów Garmin:')} {str(res_dict)[:150]}"
+
+# --- BRAKUJĄCY SILNIK PARSUJĄCY PLIKI Z GARMINA (GPS, MOC, TĘTNO) ---
+def parse_tcx_pro(file_obj, user_zones):
+    try:
+        tree = ET.parse(file_obj)
+        root = tree.getroot()
+    except Exception:
+        if isinstance(file_obj, bytes):
+            root = ET.fromstring(file_obj)
+        elif isinstance(file_obj, str):
+            root = ET.fromstring(file_obj.encode('utf-8'))
+        else:
+            file_obj.seek(0)
+            root = ET.fromstring(file_obj.read())
+            
+    ns = {'tcx': 'http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2',
+          'ns3': 'http://www.garmin.com/xmlschemas/ActivityExtension/v2'}
+          
+    act = root.find('.//tcx:Activity', ns)
+    sport_attr = act.attrib.get('Sport', 'Other') if act is not None else 'Other'
+    if sport_attr == 'Running': sport = 'Bieganie'
+    elif sport_attr == 'Biking': sport = 'Rower'
+    elif 'Swim' in sport_attr: sport = 'Pływanie'
+    else: sport = 'Inne'
+
+    streams = {'time': [], 'hr': [], 'watts': [], 'speed': [], 'cadence': [], 'lat': [], 'lon': []}
+    laps_data = []
+    total_time_sec = 0.0
+    total_dist_m = 0.0
+
+    for lap_idx, lap in enumerate(root.findall('.//tcx:Lap', ns)):
+        l_time = float(lap.find('tcx:TotalTimeSeconds', ns).text) if lap.find('tcx:TotalTimeSeconds', ns) is not None else 0
+        l_dist = float(lap.find('tcx:DistanceMeters', ns).text) if lap.find('tcx:DistanceMeters', ns) is not None else 0
+        total_time_sec += l_time
+        total_dist_m += l_dist
+        
+        hr_elem = lap.find('tcx:AverageHeartRateBpm/tcx:Value', ns)
+        l_hr = int(hr_elem.text) if hr_elem is not None else 0
+        
+        laps_data.append({
+            "nr": lap_idx + 1, 
+            "czas": format_duration(l_time), 
+            "dystans": f"{l_dist/1000:.2f}km", 
+            "hr": l_hr, 
+            "moc": 0, 
+            "tempo": format_pace(seconds_to_pace(l_dist/l_time)) if l_time>0 and l_dist>0 else "-"
+        })
+        
+        for trkpt in lap.findall('.//tcx:Trackpoint', ns):
+            streams['time'].append(len(streams['time']))
+            hr = trkpt.find('tcx:HeartRateBpm/tcx:Value', ns)
+            streams['hr'].append(int(hr.text) if hr is not None else None)
+            lat = trkpt.find('tcx:Position/tcx:LatitudeDegrees', ns)
+            lon = trkpt.find('tcx:Position/tcx:LongitudeDegrees', ns)
+            streams['lat'].append(float(lat.text) if lat is not None else None)
+            streams['lon'].append(float(lon.text) if lon is not None else None)
+            cad = trkpt.find('tcx:Cadence', ns)
+            streams['cadence'].append(int(cad.text) if cad is not None else None)
+            ext = trkpt.find('tcx:Extensions/ns3:TPX', ns)
+            if ext is not None:
+                speed = ext.find('ns3:Speed', ns)
+                streams['speed'].append(float(speed.text) if speed is not None else None)
+                watts = ext.find('ns3:Watts', ns)
+                streams['watts'].append(int(watts.text) if watts is not None else None)
+            else:
+                streams['speed'].append(None)
+                streams['watts'].append(None)
+
+    avg_pwr = int(np.nanmean([x for x in streams['watts'] if x is not None])) if any(x is not None for x in streams['watts']) else 0
+    np_val = calculate_normalized_power(streams['watts'])
+    ftp = user_zones.get(sport, {}).get('ftp', 250)
+    
+    tss_val = 0
+    if np_val > 0 and ftp > 0:
+        if_val = np_val / ftp
+        tss_val = int((total_time_sec * np_val * if_val) / (ftp * 3600) * 100)
+    elif total_time_sec > 0:
+        tss_val = int((total_time_sec/60) * (50/60))
+
+    return {
+        "dist": round(total_dist_m/1000, 2),
+        "time": int(total_time_sec/60),
+        "tss": tss_val,
+        "sport": sport,
+        "avg_power": avg_pwr,
+        "streams": streams,
+        "laps": laps_data,
+        "peak_powers": {},
+        "best_times": {}
+    }
 
 def sync_from_garmin(zawodnik, email, password, limit=10):
     import garminconnect
@@ -745,15 +849,6 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
         added_count += 1
         
     return added_count
-
-def is_valid_stream(s):
-    if not s: return False
-    for x in s:
-        if x is not None:
-            try:
-                if float(x) > 0: return True
-            except: pass
-    return False
 
 def przygotuj_kalendarz(zawodnik):
     events = []; df = get_df(zawodnik if zawodnik != tr("Wszyscy") else None)
@@ -887,12 +982,14 @@ def render_planned_workout_view(t, user_ftp=250):
 
     else: st.warning(tr("Tylko opis tekstowy."))
 
-def render_analysis_dashboard(t, user_settings):
+def render_analysis_dashboard(t, user_settings, unique_key=""):
     if not t.get('wykonany'): return
 
     streams = t.get('streams')
-    has_pwr = streams and is_valid_stream(streams.get('watts'))
-    has_hr = streams and is_valid_stream(streams.get('hr'))
+    
+    # Check if streams has data
+    has_pwr = streams and streams.get('watts') and any(x is not None for x in streams.get('watts'))
+    has_hr = streams and streams.get('hr') and any(x is not None for x in streams.get('hr'))
 
     if streams and any(streams.get('lat', [])):
         lat_list = [l for l in streams.get('lat', []) if l is not None]
@@ -961,7 +1058,9 @@ def render_analysis_dashboard(t, user_settings):
         """, unsafe_allow_html=True)
 
     safe_title = "".join([c for c in str(t.get('tytul','')) if c.isalnum()]).strip()
-    with st.form(key=f"comment_chat_form_{t.get('zawodnik')}_{t.get('data')}_{safe_title}"):
+    form_key = f"comment_chat_form_{t.get('zawodnik')}_{t.get('data')}_{safe_title}_{unique_key}"
+    
+    with st.form(key=form_key):
         new_comment = st.text_input(tr("Dodaj szybką wiadomość..."))
         if st.form_submit_button(tr("Wyślij")):
             if new_comment:
@@ -985,7 +1084,9 @@ def render_workout_expander(row, idx, ja, is_coach=False):
             k1.markdown(f"<div class='metric-card'><div class='metric-val'>{t_dict.get('dystans')} km</div><div class='metric-label'>{tr('Dystans')}</div></div>", unsafe_allow_html=True)
             k2.markdown(f"<div class='metric-card'><div class='metric-val'>{t_dict.get('czas')} m</div><div class='metric-label'>{tr('Czas')}</div></div>", unsafe_allow_html=True)
             k3.markdown(f"<div class='metric-card'><div class='metric-val'>{t_dict.get('tss')}</div><div class='metric-label'>TSS</div></div>", unsafe_allow_html=True)
-            np_val = calculate_normalized_power(t_dict.get('streams', {}).get('watts', [])) if t_dict.get('streams') and is_valid_stream(t_dict['streams'].get('watts',[])) else 0
+            
+            has_valid_watts = t_dict.get('streams') and t_dict['streams'].get('watts') and any(x is not None for x in t_dict['streams'].get('watts'))
+            np_val = calculate_normalized_power(t_dict['streams']['watts']) if has_valid_watts else 0
             k4.markdown(f"<div class='metric-card'><div class='metric-val'>{np_val} W</div><div class='metric-label'>{tr('NP (Moc)')}</div></div>", unsafe_allow_html=True)
 
             st.markdown("---")
@@ -1017,7 +1118,7 @@ def render_workout_expander(row, idx, ja, is_coach=False):
                             st.rerun()
 
             if st.toggle(tr("Pełna Analiza (Wykresy i Mapa)"), key=f"tgl_{idx}_{t_dict['data']}"):
-                render_analysis_dashboard(t_dict, u_strefy_disc)
+                render_analysis_dashboard(t_dict, u_strefy_disc, unique_key=str(idx))
 
 def render_onboarding_view(zawodnik):
     fullname = db.get("users_db", {}).get(zawodnik, {}).get("fullname", zawodnik)
@@ -1474,7 +1575,7 @@ elif menu == tr("Kalendarz"):
                                 st.markdown(f"**RPE:** {t_dict.get('rpe', 5)}/10 | **Samopoczucie:** {t_dict.get('feeling', '🙂')}")
                                 if t_dict.get('komentarz'):
                                     st.markdown(f"*{t_dict.get('komentarz')}*")
-                            render_analysis_dashboard(t_dict, get_user_zones(target, t_dict['dyscyplina']))
+                            render_analysis_dashboard(t_dict, get_user_zones(target, t_dict['dyscyplina']), unique_key="cal")
                         else:
                             render_planned_workout_view(t_dict, get_user_zones(target, t_dict['dyscyplina']).get('ftp', 250))
                             
