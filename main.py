@@ -121,8 +121,6 @@ TRANSLATIONS = {
         "Najpierw stwórz pojedyncze treningi (szablony) w zakładce Kreator.": "First, create individual workouts (templates) in the Builder tab.",
         "Ocena Treningu (RPE i Samopoczucie)": "Workout Rating (RPE & Feeling)",
         "Szablon / Fragment": "Template / Fragment",
-        
-        # NOWE DODANE TŁUMACZENIA:
         "🔄 Pobierz automatycznie z Garmin Connect": "🔄 Auto-Sync from Garmin Connect",
         "Aplikacja sama znajdzie Twoje ostatnie treningi w chmurze Garmina, pobierze ich ukryte pliki TCX i dokona pełnej analizy.": "The app will automatically find your recent workouts in the Garmin cloud, download their hidden TCX files, and perform a full analysis.",
         "Ile ostatnich aktywności sprawdzić?": "How many recent activities to check?",
@@ -206,7 +204,18 @@ TRANSLATIONS = {
         "Błąd po stronie serwerów Garmin:": "Garmin servers error:",
         "Brak danych logowania do Garmin Connect. Uzupełnij je najpierw w zakładce 'Dane Zawodnika' -> 'Integracje 🔗'.": "No Garmin Connect login credentials. Fill them in the 'Athlete Data' -> 'Integrations 🔗' tab first.",
         "⚠️ Błąd logowania! Sprawdź czy e-mail/hasło są poprawne. Upewnij się też, że na koncie Garmin masz wyłączoną weryfikację dwuetapową (2FA).": "⚠️ Login error! Check if email/password are correct. Make sure 2FA is disabled on your Garmin account.",
-        "⚠️ Błąd integracji:": "⚠️ Integration error:"
+        "⚠️ Błąd integracji:": "⚠️ Integration error:",
+        
+        # TLUMACZENIA EKRANU LOGOWANIA
+        "Logowanie": "Log In",
+        "Rejestracja": "Sign Up",
+        "Dołącz do Endura IQ i rozpocznij swoją profesjonalną drogę.": "Join Endura IQ and start your professional journey.",
+        "Twój Login / Nick (musi być unikalny)": "Your Username (must be unique)",
+        "Imię i Nazwisko": "Full Name",
+        "Utwórz konto": "Create Account",
+        "Użytkownik o takim loginie już istnieje. Wybierz inny!": "Username already exists. Choose another!",
+        "Wypełnij poprawnie wszystkie pola (Login i Imię min. 3 znaki, Hasło min. 4).": "Fill all fields correctly (Username and Name min 3 chars, Password min 4 chars).",
+        "Konto utworzone! Możesz się teraz zalogować w zakładce obok.": "Account created! You can now log in on the adjacent tab."
     }
 }
 
@@ -233,8 +242,29 @@ def inject_custom_css():
         .tp-week-title { color: #FFF; font-size: 1.15em; font-weight: 800; border-bottom: 1px solid #1F2735; margin-bottom: 12px; padding-bottom: 8px; }
         .tp-row { display: flex; justify-content: space-between; margin-bottom: 8px; color: #E2E8F0; font-weight: 600;}
         .tp-stat-line { display: flex; justify-content: space-between; color: #8BA1B8; font-size: 0.9em; margin-top: 4px; }
+        
+        /* Glowny styl przyciskow */
         div.stButton > button { background: linear-gradient(90deg, #00B4D8 0%, #00E5FF 100%); color: #05070A !important; border-radius: 8px; font-weight: 800; border: none; width: 100%; padding: 12px; text-transform: uppercase; letter-spacing: 0.5px; transition: all 0.3s ease; }
         div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,229,255,0.3); }
+        
+        /* SPECJALNY STYL DLA PRZYCISKU WYLOGUJ W PANELU BOCZNYM */
+        section[data-testid="stSidebar"] div.stButton > button {
+            background: transparent !important;
+            color: #8BA1B8 !important;
+            border: 1px solid #1F2735 !important;
+            padding: 8px !important;
+            font-size: 12px !important;
+            text-transform: none !important;
+            letter-spacing: normal !important;
+            box-shadow: none !important;
+            margin-top: 40px !important;
+        }
+        section[data-testid="stSidebar"] div.stButton > button:hover {
+            color: #FF5252 !important;
+            border-color: #FF5252 !important;
+            background: #11151C !important;
+        }
+        
         div[data-testid="stFileUploader"] { border: 2px dashed #00E5FF; background-color: rgba(0,229,255,0.03); border-radius: 12px; }
         div[data-testid="stExpander"] { border: 1px solid #1F2735 !important; border-radius: 10px !important; background-color: #11151C !important; }
         div[data-testid="stNumberInput"] input:disabled { background-color: #1A202C; color: #64748B; }
@@ -479,20 +509,6 @@ def save_data(new_entry):
     st.session_state.session_treningi.append(new_entry)
     db["treningi"] = list(db["treningi"]) + [new_entry]
 
-def add_comment_to_workout(zawodnik, data_str, tytul, dyscyplina, autor, tresc):
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    new_comment = {"autor": autor, "data": now_str, "tresc": tresc}
-    for w in st.session_state.session_treningi:
-        if w.get('zawodnik') == zawodnik and str(w.get('data')) == str(data_str) and w.get('tytul') == tytul and w.get('dyscyplina') == dyscyplina:
-            if 'komentarze_treningu' not in w: w['komentarze_treningu'] = []
-            w['komentarze_treningu'].append(new_comment)
-    temp_db = list(db["treningi"])
-    for w in temp_db:
-        if w.get('zawodnik') == zawodnik and str(w.get('data')) == str(data_str) and w.get('tytul') == tytul and w.get('dyscyplina') == dyscyplina:
-            if 'komentarze_treningu' not in w: w['komentarze_treningu'] = []
-            w['komentarze_treningu'].append(new_comment)
-    db["treningi"] = temp_db
-
 def get_df(zawodnik=None):
     data = st.session_state.session_treningi
     if not data: return pd.DataFrame()
@@ -548,6 +564,10 @@ def send_workout_to_garmin_connect(email, password, workout_data):
     ftp = user_zones.get('ftp', 250)
     
     steps = []
+    # Zliczanie interwałów do prawidłowego nazewnictwa na zegarku (np. 1/20, 2/20)
+    total_intervals = sum(1 for k in workout_data.get('kroki', []) if k.get('typ') == 'Interwał')
+    interval_count = 1
+    
     for i, k in enumerate(workout_data.get('kroki', [])):
         typ_str = k.get('typ', 'Interwał')
         s_id, s_key = (1, "warmup") if typ_str == "Rozgrzewka" else ((2, "cooldown") if typ_str == "Rozjazd" else ((4, "rest") if typ_str == "Przerwa" else (3, "active")))
@@ -584,7 +604,13 @@ def send_workout_to_garmin_connect(email, password, workout_data):
             t_val1 = round(min(speed1, speed2), 3)
             t_val2 = round(max(speed1, speed2), 3)
             
-        desc_str = f"{tryb} {float_to_pace_str(v1) if 'Tempo' in tryb else int(v1)}-{float_to_pace_str(v2) if 'Tempo' in tryb else int(v2)}"
+        # Dodawanie licznika powtórzeń do opisu tarczy zegarka
+        prefix = ""
+        if typ_str == "Interwał" and total_intervals > 1:
+            prefix = f"[{interval_count}/{total_intervals}] "
+            interval_count += 1
+            
+        desc_str = f"{prefix}{tryb} {float_to_pace_str(v1) if 'Tempo' in tryb else int(v1)}-{float_to_pace_str(v2) if 'Tempo' in tryb else int(v2)}"
         
         step_dict = {
             "type": "ExecutableStepDTO",
@@ -1100,7 +1126,7 @@ if not st.session_state.logged_in:
         st.markdown("<div style='height: 5vh;'></div>", unsafe_allow_html=True)
         st.markdown("""<div class="login-header"><h1 class="login-title">ENDURA IQ</h1><p class="login-subtitle">Science-Based Coaching Platform</p></div>""", unsafe_allow_html=True)
         
-        tab_log, tab_reg = st.tabs(["🔒 Logowanie", "✨ Rejestracja"])
+        tab_log, tab_reg = st.tabs([tr("Logowanie"), tr("Rejestracja")])
         
         with tab_log:
             u = st.text_input(tr("Użytkownik"), placeholder="admin / Twój Login", key="log_u")
@@ -1117,17 +1143,17 @@ if not st.session_state.logged_in:
                     st.error(tr("Nieprawidłowy login lub hasło."))
                     
         with tab_reg:
-            st.markdown("<span style='color:#8BA1B8; font-size: 0.9em;'>Dołącz do Endura IQ i rozpocznij swoją profesjonalną drogę.</span>", unsafe_allow_html=True)
-            reg_login = st.text_input("Twój Login / Nick (musi być unikalny)")
-            reg_name = st.text_input("Imię i Nazwisko")
-            reg_pass = st.text_input("Hasło", type="password")
+            st.markdown(f"<span style='color:#8BA1B8; font-size: 0.9em;'>{tr('Dołącz do Endura IQ i rozpocznij swoją profesjonalną drogę.')}</span>", unsafe_allow_html=True)
+            reg_login = st.text_input(tr("Twój Login / Nick (musi być unikalny)"))
+            reg_name = st.text_input(tr("Imię i Nazwisko"))
+            reg_pass = st.text_input(tr("Hasło"), type="password")
             
-            if st.button("Utwórz konto 🚀"):
+            if st.button(tr("Utwórz konto")):
                 users = db.get("users_db", {})
                 if reg_login in users:
-                    st.error("Użytkownik o takim loginie już istnieje. Wybierz inny!")
+                    st.error(tr("Użytkownik o takim loginie już istnieje. Wybierz inny!"))
                 elif len(reg_login) < 3 or len(reg_name) < 3 or len(reg_pass) < 4:
-                    st.error("Wypełnij poprawnie wszystkie pola (Login i Imię min. 3 znaki, Hasło min. 4).")
+                    st.error(tr("Wypełnij poprawnie wszystkie pola (Login i Imię min. 3 znaki, Hasło min. 4)."))
                 else:
                     users[reg_login] = {"password": reg_pass, "role": "athlete", "fullname": reg_name}
                     db["users_db"] = users
@@ -1137,7 +1163,7 @@ if not st.session_state.logged_in:
                         zaw_list.append(reg_login)
                         db["zawodnicy_list"] = zaw_list
                         
-                    st.success("Konto utworzone! Możesz się teraz zalogować w zakładce obok.")
+                    st.success(tr("Konto utworzone! Możesz się teraz zalogować w zakładce obok."))
                     time.sleep(2)
                     st.rerun()
     st.stop()
@@ -1308,7 +1334,6 @@ elif menu == tr("Statystyki"):
         if sel_month_str != months_pl[0] and sel_month_str != months_en[0]: df_filtered = df_filtered[df_filtered['month'] == month_opts.index(sel_month_str)]
 
         if not df_filtered.empty:
-            # Twarde wymuszenie typu numerycznego, żeby wykres kołowy nie traktował tego jako licznika sztuk (np. 33.3%)
             df_filtered['czas'] = pd.to_numeric(df_filtered['czas'], errors='coerce').fillna(0)
             df_filtered['dystans'] = pd.to_numeric(df_filtered['dystans'], errors='coerce').fillna(0)
             
@@ -1368,7 +1393,6 @@ elif menu == tr("Kalendarz"):
                 "eventDisplay": "block"
             }
             
-            # WSTRZYKNIĘTY NOWY, EKSKLUZYWNY CSS DO RAMKI KALENDARZA
             cal = calendar(events=events, options=cal_options, custom_css=cal_css, key=f'cal_view_{target}', callbacks=['dateClick', 'eventClick', 'select'])
             
             if cal and isinstance(cal, dict):
@@ -1434,7 +1458,6 @@ elif menu == tr("Kalendarz"):
                             save_data({"zawodnik": target, "dyscyplina": p_sport, "data": c_date, "tytul": p_title, "komentarz": p_desc, "czas": p_time, "tss": p_tss, "wykonany": False, "kroki": p_steps})
                             st.success(tr("Zaplanowano!")); st.session_state.cal_click_date = None; st.rerun()
 
-            # --- OTWIERANIE TRENINGU Z POZIOMU KALENDARZA ---
             if cal and isinstance(cal, dict) and cal.get("callback") == "eventClick":
                 props = cal.get("eventClick", {}).get("event", {}).get("extendedProps", {})
                 if props.get("type") == "waga": 
