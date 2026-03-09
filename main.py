@@ -2095,7 +2095,7 @@ elif menu == tr("Kreator"):
                             lib[existing_idx] = {"nazwa": n, "kroki": st.session_state['pro_steps'], "dyscyplina": sport_creator}
                             msg = tr("Zaktualizowano istniejący szablon!")
                         else:
-                            lib.append({"nazwa": n, "kroki": st.session_state['pro_steps'], "dyscyplina": sport_creator}
+                            lib.append({"nazwa": n, "kroki": st.session_state['pro_steps'], "dyscyplina": sport_creator})
                             msg = tr("Zapisano nowy szablon!")
                         
                         db["biblioteka"] = lib
