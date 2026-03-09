@@ -205,16 +205,15 @@ TRANSLATIONS = {
         "Brak danych logowania do Garmin Connect. Uzupełnij je najpierw w zakładce 'Dane Zawodnika' -> 'Integracje 🔗'.": "No Garmin Connect login credentials. Fill them in the 'Athlete Data' -> 'Integrations 🔗' tab first.",
         "⚠️ Błąd logowania! Sprawdź czy e-mail/hasło są poprawne. Upewnij się też, że na koncie Garmin masz wyłączoną weryfikację dwuetapową (2FA).": "⚠️ Login error! Check if email/password are correct. Make sure 2FA is disabled on your Garmin account.",
         "⚠️ Błąd integracji:": "⚠️ Integration error:",
-        
-        # TŁUMACZENIA EKRANU LOGOWANIA
         "Logowanie": "Log In",
         "Rejestracja": "Sign Up",
         "Dołącz do Endura IQ i rozpocznij swoją profesjonalną drogę.": "Join Endura IQ and start your professional journey.",
         "Twój Login / Nick (musi być unikalny)": "Your Username (must be unique)",
+        "Adres E-mail": "Email Address",
         "Imię i Nazwisko": "Full Name",
         "Utwórz konto": "Create Account",
         "Użytkownik o takim loginie już istnieje. Wybierz inny!": "Username already exists. Choose another!",
-        "Wypełnij poprawnie wszystkie pola (Login i Imię min. 3 znaki, Hasło min. 4).": "Fill all fields correctly (Username and Name min 3 chars, Password min 4 chars).",
+        "Wypełnij poprawnie wszystkie pola (Login i Imię min. 3 znaki, Hasło min. 4, poprawny email).": "Fill all fields correctly (Username and Name min 3 chars, Password min 4 chars, valid email).",
         "Konto utworzone! Możesz się teraz zalogować w zakładce obok.": "Account created! You can now log in on the adjacent tab."
     }
 }
@@ -275,7 +274,6 @@ def inject_custom_css():
     </style>
     """, unsafe_allow_html=True)
 
-# NOWOŚĆ: BEZPOŚREDNIE STYLE TYLKO DLA KALENDARZA (PRZEKAZYWANE DO IFRAME)
 cal_css = """
     .fc-theme-standard td, .fc-theme-standard th { border-color: #1F2735 !important; }
     .fc-daygrid-day { background-color: #0A0D12 !important; }
@@ -286,7 +284,6 @@ cal_css = """
     .fc-button-primary { background-color: #11151C !important; border: 1px solid #00E5FF !important; color: #00E5FF !important; text-transform: uppercase; font-weight: bold !important; border-radius: 6px !important; padding: 6px 12px !important;}
     .fc-button-primary:hover { background-color: #00E5FF !important; color: #000 !important; }
     
-    /* Główne Style dla Widżetów Treningowych */
     .fc-event {
         border-radius: 6px !important;
         padding: 5px 8px !important;
@@ -304,7 +301,6 @@ cal_css = """
         z-index: 10 !important;
     }
     
-    /* Klasy Kolorystyczne (TrainingPeaks Vibe) */
     .completed-workout-green { background: linear-gradient(135deg, #00C853 0%, #009624 100%) !important; border-left: 4px solid #00FF66 !important; color: #FFF !important; }
     .completed-workout-yellow { background: linear-gradient(135deg, #FFD600 0%, #F57F17 100%) !important; border-left: 4px solid #FFFF00 !important; color: #000 !important; }
     .completed-workout-red { background: linear-gradient(135deg, #D50000 0%, #8E0000 100%) !important; border-left: 4px solid #FF5252 !important; color: #FFF !important; }
@@ -381,7 +377,6 @@ def calculate_compliance(df):
     t = past[~past['wykonany']]['czas'].sum() + past[past['wykonany']]['czas'].sum()
     return int((past[past['wykonany']]['czas'].sum() / t) * 100) if t > 0 else 0
 
-# --- KULOODPORNA FUNKCJA STREF ---
 def calculate_time_in_zones_custom(stream, zone_defs, total_time_mins):
     if not stream or not zone_defs: return []
     zs = [{"label": str(z.get("Strefa", "")), "max": float(z.get("Max", 0)), "count": 0} for z in zone_defs]
@@ -414,7 +409,6 @@ def calculate_time_in_zones_custom(stream, zone_defs, total_time_mins):
         
     return [{"label": z["label"], "mins": round((z["count"]/t) * ttm, 1), "pct": (z["count"]/t)*100} for z in zs]
 
-# --- FUNKCJA RYSUJĄCA NIEZAWODNE WYKRESY STREF ---
 def render_zone_chart_robust(df_z, title):
     max_v = df_z['mins'].max()
     max_v = float(max_v) if pd.notna(max_v) else 0.0
@@ -578,8 +572,6 @@ def send_workout_to_garmin_connect(email, password, workout_data):
     ftp = user_zones.get('ftp', 250)
     
     steps = []
-    
-    # Przeliczanie ilości interwałów do opisu zegarka
     total_intervals = sum(1 for k in workout_data.get('kroki', []) if k.get('typ') == 'Interwał')
     interval_count = 1
     
@@ -665,7 +657,6 @@ def send_workout_to_garmin_connect(email, password, workout_data):
     else:
         return False, f"{tr('Błąd po stronie serwerów Garmin:')} {str(res_dict)[:150]}"
 
-# --- BRAKUJĄCY SILNIK PARSUJĄCY PLIKI Z GARMINA (GPS, MOC, TĘTNO) ---
 def parse_tcx_pro(file_obj, user_zones):
     try:
         tree = ET.parse(file_obj)
@@ -703,13 +694,18 @@ def parse_tcx_pro(file_obj, user_zones):
         hr_elem = lap.find('tcx:AverageHeartRateBpm/tcx:Value', ns)
         l_hr = int(hr_elem.text) if hr_elem is not None else 0
         
+        if sport == 'Pływanie':
+            tempo_str = format_swim_pace(l_time, l_dist)
+        else:
+            tempo_str = format_pace(seconds_to_pace(l_dist/l_time)) if l_time>0 and l_dist>0 else "-"
+        
         laps_data.append({
             "nr": lap_idx + 1, 
             "czas": format_duration(l_time), 
             "dystans": f"{l_dist/1000:.2f}km", 
             "hr": l_hr, 
             "moc": 0, 
-            "tempo": format_pace(seconds_to_pace(l_dist/l_time)) if l_time>0 and l_dist>0 else "-"
+            "tempo": tempo_str
         })
         
         for trkpt in lap.findall('.//tcx:Trackpoint', ns):
@@ -720,17 +716,28 @@ def parse_tcx_pro(file_obj, user_zones):
             lon = trkpt.find('tcx:Position/tcx:LongitudeDegrees', ns)
             streams['lat'].append(float(lat.text) if lat is not None else None)
             streams['lon'].append(float(lon.text) if lon is not None else None)
+            
+            cad_val = None
             cad = trkpt.find('tcx:Cadence', ns)
-            streams['cadence'].append(int(cad.text) if cad is not None else None)
+            if cad is not None:
+                cad_val = int(cad.text)
+                
             ext = trkpt.find('tcx:Extensions/ns3:TPX', ns)
             if ext is not None:
                 speed = ext.find('ns3:Speed', ns)
                 streams['speed'].append(float(speed.text) if speed is not None else None)
                 watts = ext.find('ns3:Watts', ns)
                 streams['watts'].append(int(watts.text) if watts is not None else None)
+                
+                run_cad = ext.find('ns3:RunCadence', ns)
+                if run_cad is not None:
+                    rc_val = int(run_cad.text)
+                    cad_val = rc_val * 2 if rc_val < 130 else rc_val
             else:
                 streams['speed'].append(None)
                 streams['watts'].append(None)
+                
+            streams['cadence'].append(cad_val)
 
     avg_pwr = int(np.nanmean([x for x in streams['watts'] if x is not None])) if any(x is not None for x in streams['watts']) else 0
     np_val = calculate_normalized_power(streams['watts'])
@@ -849,6 +856,15 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
         added_count += 1
         
     return added_count
+
+def is_valid_stream(s):
+    if not s: return False
+    for x in s:
+        if x is not None:
+            try:
+                if float(x) > 0: return True
+            except: pass
+    return False
 
 def przygotuj_kalendarz(zawodnik):
     events = []; df = get_df(zawodnik if zawodnik != tr("Wszyscy") else None)
@@ -987,7 +1003,6 @@ def render_analysis_dashboard(t, user_settings, unique_key=""):
 
     streams = t.get('streams')
     
-    # Check if streams has data
     has_pwr = streams and streams.get('watts') and any(x is not None for x in streams.get('watts'))
     has_hr = streams and streams.get('hr') and any(x is not None for x in streams.get('hr'))
 
@@ -1246,6 +1261,7 @@ if not st.session_state.logged_in:
         with tab_reg:
             st.markdown(f"<span style='color:#8BA1B8; font-size: 0.9em;'>{tr('Dołącz do Endura IQ i rozpocznij swoją profesjonalną drogę.')}</span>", unsafe_allow_html=True)
             reg_login = st.text_input(tr("Twój Login / Nick (musi być unikalny)"))
+            reg_email = st.text_input(tr("Adres E-mail"))
             reg_name = st.text_input(tr("Imię i Nazwisko"))
             reg_pass = st.text_input(tr("Hasło"), type="password")
             
@@ -1253,10 +1269,10 @@ if not st.session_state.logged_in:
                 users = db.get("users_db", {})
                 if reg_login in users:
                     st.error(tr("Użytkownik o takim loginie już istnieje. Wybierz inny!"))
-                elif len(reg_login) < 3 or len(reg_name) < 3 or len(reg_pass) < 4:
-                    st.error(tr("Wypełnij poprawnie wszystkie pola (Login i Imię min. 3 znaki, Hasło min. 4)."))
+                elif len(reg_login) < 3 or len(reg_name) < 3 or len(reg_pass) < 4 or "@" not in reg_email:
+                    st.error(tr("Wypełnij poprawnie wszystkie pola (Login i Imię min. 3 znaki, Hasło min. 4, poprawny email)."))
                 else:
-                    users[reg_login] = {"password": reg_pass, "role": "athlete", "fullname": reg_name}
+                    users[reg_login] = {"password": reg_pass, "role": "athlete", "fullname": reg_name, "email": reg_email}
                     db["users_db"] = users
                     
                     zaw_list = db.get("zawodnicy_list", [])
