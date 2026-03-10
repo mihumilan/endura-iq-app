@@ -904,6 +904,35 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
             "komentarze_treningu": []
         }
         
+        # --- LOGIKA PAROWANIA Z PLANEM ---
+        unexecuted_matches = [w for w in st.session_state.session_treningi 
+                              if w.get("zawodnik") == zawodnik 
+                              and not w.get("wykonany") 
+                              and w.get("dyscyplina") == parsed['sport']
+                              and str(w.get("data")) == act_date]
+                              
+        if unexecuted_matches:
+            old_w = unexecuted_matches[0]
+            new_session = [w for w in st.session_state.session_treningi if w is not old_w]
+            st.session_state.session_treningi = new_session
+            
+            new_db = []
+            for w in db.get("treningi", []):
+                if (w.get("zawodnik") == old_w.get("zawodnik") and
+                    str(w.get("data")) == str(old_w.get("data")) and
+                    w.get("tytul") == old_w.get("tytul") and
+                    w.get("dyscyplina") == old_w.get("dyscyplina") and
+                    not w.get("wykonany")):
+                    continue
+                new_db.append(w)
+            db["treningi"] = new_db
+            
+            new_entry['plan_czas'] = old_w.get('czas', 0)
+            new_entry['plan_tss'] = old_w.get('tss', 0)
+            new_entry['kroki'] = old_w.get('kroki', [])
+            if old_w.get('tytul') and old_w.get('tytul') != tr(parsed['sport']):
+                new_entry['tytul'] = old_w.get('tytul')
+                
         save_data(new_entry)
         added_count += 1
         
@@ -911,6 +940,8 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
 
 def przygotuj_kalendarz(zawodnik):
     events = []; df = get_df(zawodnik if zawodnik != tr("Wszyscy") else None)
+    today_str = str(date.today())
+    
     for idx, t in df.iterrows():
         ikona = "🏃" if t['dyscyplina'] == "Bieganie" else "🚴" if t['dyscyplina'] == "Rower" else "🏊" if t['dyscyplina'] == "Pływanie" else "🏋️"
         
@@ -918,7 +949,7 @@ def przygotuj_kalendarz(zawodnik):
             if t.get('plan_czas', 0) > 0:
                 pct = (t['czas'] / t['plan_czas']) * 100
                 if 80 <= pct <= 120: c_class = "completed-workout-green" 
-                elif 60 <= pct < 80 or 120 < pct <= 150: c_class = "completed-workout-yellow" 
+                elif 50 <= pct < 80 or 120 < pct <= 150: c_class = "completed-workout-yellow" 
                 else: c_class = "completed-workout-red" 
             else:
                 c_class = "completed-workout-green"
@@ -932,11 +963,17 @@ def przygotuj_kalendarz(zawodnik):
                 "extendedProps": {"type": "trening", "data_str": str(t['data']), "dyscyplina": t['dyscyplina'], "tytul": t['tytul']}
             })
         else:
-            title_text = f"{ikona} [PLAN] {t['tytul']}"
+            if str(t['data']) < today_str:
+                c_class = "completed-workout-red"
+                title_text = f"{ikona} {t['tytul']}"
+            else:
+                c_class = "planned-workout"
+                title_text = f"{ikona} [PLAN] {t['tytul']}"
+                
             events.append({
                 "title": title_text, 
                 "start": str(t['data']), 
-                "className": "planned-workout", 
+                "className": c_class, 
                 "allDay": True, 
                 "extendedProps": {"type": "trening", "data_str": str(t['data']), "dyscyplina": t['dyscyplina'], "tytul": t['tytul']}
             })
@@ -1142,7 +1179,7 @@ def render_workout_expander(row, idx, ja, is_coach=False):
         else:
             if t_dict.get('plan_czas', 0) > 0:
                 comp_pct = int((t_dict['czas'] / t_dict['plan_czas']) * 100)
-                col = "#00E676" if 80 <= comp_pct <= 120 else ("#FFD600" if 60 <= comp_pct < 80 or 120 < comp_pct <= 150 else "#FF1744")
+                col = "#00E676" if 80 <= comp_pct <= 120 else ("#FFD600" if 50 <= comp_pct < 80 or 120 < comp_pct <= 150 else "#FF1744")
                 st.markdown(f"<div style='text-align:center; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 15px;'><span style='color:#8BA1B8; text-transform:uppercase; font-size:0.8em;'>{tr('Zgodność z planem:')}</span> <strong style='color:{col}; font-size:1.2em;'>{comp_pct}%</strong></div>", unsafe_allow_html=True)
 
             k1,k2,k3,k4 = st.columns(4)
