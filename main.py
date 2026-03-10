@@ -904,7 +904,6 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
             "komentarze_treningu": []
         }
         
-        # --- LOGIKA PAROWANIA Z PLANEM ---
         unexecuted_matches = [w for w in st.session_state.session_treningi 
                               if w.get("zawodnik") == zawodnik 
                               and not w.get("wykonany") 
@@ -1417,8 +1416,17 @@ st.sidebar.markdown(f"<h3 style='color: #00E5FF; text-align: center; margin-bott
 lang_sel = st.sidebar.radio("Language / Język", ["PL", "EN"], horizontal=True, index=0 if st.session_state.lang == 'PL' else 1)
 if lang_sel != st.session_state.lang: st.session_state.lang = lang_sel; st.rerun()
 
+# --- SYSTEM POWIADOMIEŃ W MENU ---
+unread_count = sum(1 for m in db.get("chat", []) if m.get("do") == ja and m.get("read", True) is False)
+
+def format_menu(opt):
+    if opt == tr("Wiadomości") and unread_count > 0:
+        return f"{opt} 🔴 ({unread_count})"
+    return opt
+
 menu_opts = [tr("Dashboard"), tr("Kalendarz"), tr("Wiadomości"), tr("Statystyki"), tr("Raporty"), tr("Fizjologia"), tr("Strefy"), tr("Kreator"), tr("Plany"), tr("Baza")] if st.session_state.role == "coach" else [tr("Dodaj aktywność"), tr("Kalendarz"), tr("Wiadomości"), tr("Statystyki"), tr("Dane zawodnika")]
-menu = st.sidebar.radio(tr("MENU"), menu_opts)
+menu = st.sidebar.radio(tr("MENU"), menu_opts, format_func=format_menu)
+
 st.sidebar.markdown("<br>", unsafe_allow_html=True)
 if st.sidebar.button(tr("Wyloguj")): st.session_state.logged_in=False; st.rerun()
 
@@ -1527,7 +1535,23 @@ if menu == tr("Dodaj aktywność"):
 elif menu == tr("Wiadomości"):
     st.title(f"💬 {tr('Wiadomości')}")
     chat_partner = "admin"
-    if st.session_state.role == "coach": chat_partner = st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY, format_func=get_display_name)
+    if st.session_state.role == "coach": 
+        def format_coach_chat_partner(z):
+            z_unread = sum(1 for m in db.get("chat", []) if m.get("do") == ja and m.get("od") == z and m.get("read", True) is False)
+            name = get_display_name(z)
+            return f"🔴 {name}" if z_unread > 0 else name
+        chat_partner = st.selectbox(tr("Wybierz zawodnika:"), ZAWODNICY, format_func=format_coach_chat_partner)
+    
+    # OZNACZANIE WIADOMOŚCI JAKO PRZECZYTANE W TLE
+    chat_db = list(db.get("chat", []))
+    has_unread_now = False
+    for m in chat_db:
+        if m.get("do") == ja and m.get("od") == chat_partner and m.get("read", True) is False:
+            m["read"] = True
+            has_unread_now = True
+    if has_unread_now:
+        db["chat"] = chat_db
+        st.rerun()
     
     partner_disp = get_display_name(chat_partner)
     st.markdown(f"#### {tr('Czat z')} {partner_disp}")
@@ -1542,7 +1566,7 @@ elif menu == tr("Wiadomości"):
                 st.write(m['tresc'])
     prompt = st.chat_input(tr("Napisz wiadomość..."))
     if prompt:
-        db["chat"] = list(db.get("chat", [])) + [{"od": ja, "do": chat_partner, "data": datetime.now().strftime("%Y-%m-%d %H:%M"), "tresc": prompt}]
+        db["chat"] = list(db.get("chat", [])) + [{"od": ja, "do": chat_partner, "data": datetime.now().strftime("%Y-%m-%d %H:%M"), "tresc": prompt, "read": False}]
         st.rerun()
 
 # --- 1.8 STATYSTYKI ---
@@ -2079,7 +2103,7 @@ elif menu == tr("Kreator"):
             elif "Tempo" in w_mode: t1=wk1.text_input(tr("Od"),"4:00", key="wt1"); t2=wk2.text_input(tr("Do"),"3:50", key="wt2"); wv1=pace_str_to_float(t1); wv2=pace_str_to_float(t2)
             else: wv1=st.slider("RPE",1,10,8, key="wr1"); wv2=wv1
             st.markdown(f"<h4 style='color: #1976D2 !important; font-size: 1em;'>{tr('Odpoczynek')}</h4>", unsafe_allow_html=True)
-            r_jedn = st.radio(tr("Jednostka")+" 2", [tr("Czas"), tr("Dystans")], horizontal=True, key="r_jedn", label_visibility="collapsed")
+            r_jedn = radio(tr("Jednostka")+" 2", [tr("Czas"), tr("Dystans")], horizontal=True, key="r_jedn", label_visibility="collapsed")
             if r_jedn == tr("Czas"): r_v_time = st.number_input(tr("Czas (min)"), 0.5, 300.0, 2.0, step=0.5, key="r_time"); r_v_dist=0.0; r_is_dist=False
             else: r_v_time=0.0; r_v_dist = st.number_input(tr("Dystans (km)"), 0.1, 50.0, 0.5, step=0.1, key="r_dist"); r_is_dist=True
             r_mode = st.selectbox(tr("Intensywność")+" 2", ["Moc %FTP", "Waty", "Tętno", "Tempo", "RPE"], key="r_mode", label_visibility="collapsed")
