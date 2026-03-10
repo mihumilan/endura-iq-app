@@ -1074,7 +1074,7 @@ def render_tp_weekly_list(df):
                 <div class="tp-stat-line"><span>{format_czas(s_comp['czas'].sum())} / {format_czas(s_df['czas'].sum())}</span><span>{s_comp['dystans'].sum():.1f} km</span><span>{int(s_comp['tss'].sum())} / {int(s_df['tss'].sum())} TSS</span></div></div>"""
         st.markdown(html + "</div>", unsafe_allow_html=True)
 
-def render_planned_workout_view(t, user_ftp=250):
+def render_planned_workout_view(t, user_ftp=250, unique_key=""):
     st.info(f"{tr('Zaplanowany Trening:')} {t['tytul']}")
     if t.get('komentarz'): st.markdown(f"{tr('Instrukcje Trenera:')}\n> {t['komentarz']}")
     if t.get('kroki'):
@@ -1093,12 +1093,15 @@ def render_planned_workout_view(t, user_ftp=250):
 
         fig.update_layout(template="plotly_dark", height=250, showlegend=False, xaxis_title=tr("Czas (min)"), yaxis=dict(showticklabels=False), margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig, use_container_width=True)
-        with st.expander(tr("Zobacz Rozpiskę")): st.table(pd.DataFrame(steps_data))
+        
+        # Używamy przełącznika (toggle) zamiast expandera, żeby uniknąć błędu w Streamlit przy zagnieżdżaniu
+        if st.toggle(tr("Zobacz Rozpiskę"), key=f"gc_tog_rozp_plan_{t.get('tytul')}_{t.get('data')}_{unique_key}"):
+            st.table(pd.DataFrame(steps_data))
         
         st.markdown("---")
         st.markdown(f"### ☁️ {tr('Synchronizacja')}")
         
-        if st.button("🚀 Wyślij prosto do Garmin Connect (WiFi / Bluetooth)", key=f"gc_{t['tytul']}_{t['data']}"):
+        if st.button("🚀 Wyślij prosto do Garmin Connect (WiFi / Bluetooth)", key=f"gc_{t['tytul']}_{t['data']}_{unique_key}"):
             with st.spinner(f"{tr('Łączenie z Garmin Connect i pobieranie')} 1 {tr('aktywności... (to potrwa kilkanaście sekund)')}"):
                 zawodnik = t.get('zawodnik')
                 g_creds = db["garmin_creds"].get(zawodnik, {})
@@ -1216,7 +1219,7 @@ def render_workout_expander(row, idx, ja, is_coach=False):
     
     with st.expander(f"{'✅' if t_dict['wykonany'] else '⬜'} {t_dict['data']} | {tr(t_dict['dyscyplina'])} - {t_dict['tytul']}"):
         if not t_dict['wykonany']:
-            render_planned_workout_view(t_dict, u_strefy_disc.get('ftp', 250))
+            render_planned_workout_view(t_dict, u_strefy_disc.get('ftp', 250), unique_key=f"pln_{idx}")
         else:
             if t_dict.get('plan_czas', 0) > 0:
                 comp_pct = int((t_dict['czas'] / t_dict['plan_czas']) * 100)
@@ -1252,7 +1255,11 @@ def render_workout_expander(row, idx, ja, is_coach=False):
 
                 fig_plan.update_layout(template="plotly_dark", height=200, showlegend=False, xaxis_title=tr("Czas (min)"), yaxis=dict(showticklabels=False), margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig_plan, use_container_width=True)
-                with st.expander(tr("Zobacz Rozpiskę")): st.table(pd.DataFrame(steps_data))
+                
+                # Zmiana z st.expander na st.toggle dla bezpieczeństwa:
+                if st.toggle(tr("Zobacz Rozpiskę"), key=f"tog_rozp_comp_{idx}_{t_dict['data']}"):
+                    st.table(pd.DataFrame(steps_data))
+                    
                 st.markdown("---")
 
             st.markdown(f"### 📋 {tr('Ocena Treningu (RPE i Samopoczucie)')}")
@@ -1798,7 +1805,7 @@ elif menu == tr("Kalendarz"):
                                     st.markdown(f"*{t_dict.get('komentarz')}*")
                             render_analysis_dashboard(t_dict, get_user_zones(target, t_dict['dyscyplina']), unique_key="cal")
                         else:
-                            render_planned_workout_view(t_dict, get_user_zones(target, t_dict['dyscyplina']).get('ftp', 250))
+                            render_planned_workout_view(t_dict, get_user_zones(target, t_dict['dyscyplina']).get('ftp', 250), unique_key="cal_modal")
                             
                     else: st.info(tr("Nie znaleziono szczegółów. Sprawdź listę zadań."))
 
