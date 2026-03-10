@@ -182,7 +182,7 @@ TRANSLATIONS = {
         "Styl życia": "Lifestyle",
         "Praca:": "Work:",
         "Średni sen:": "Average sleep:",
-        "Harmonogram dostępności (godziny/dzień)": "Availability schedule (hours/day)",
+        "Harmonogram dostępności (godziny:minuty/dzień)": "Availability schedule (hours:minutes/day)",
         "Cele i Doświadczenie": "Goals and Experience",
         "Staż w sportach:": "Sports experience:",
         "Cel główny:": "Main goal:",
@@ -237,7 +237,11 @@ TRANSLATIONS = {
         "Historia i Parametry Wyjściowe": "History & Baseline Metrics",
         "Tydzień Testowy:": "Testing Week:",
         "Komunikacja:": "Communication:",
-        "Średnia objętość:": "Avg Volume:"
+        "Średnia objętość:": "Avg Volume:",
+        "Godz.": "Hrs",
+        "Min.": "Mins",
+        "Priorytet treningu (1-10):": "Training Priority (1-10):",
+        "1 = Życie prywatne, 10 = Trening 100%": "1 = Personal life, 10 = Training 100%"
     }
 }
 
@@ -1094,7 +1098,6 @@ def render_planned_workout_view(t, user_ftp=250, unique_key=""):
         fig.update_layout(template="plotly_dark", height=250, showlegend=False, xaxis_title=tr("Czas (min)"), yaxis=dict(showticklabels=False), margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig, use_container_width=True)
         
-        # Używamy przełącznika (toggle) zamiast expandera, żeby uniknąć błędu w Streamlit przy zagnieżdżaniu
         if st.toggle(tr("Zobacz Rozpiskę"), key=f"gc_tog_rozp_plan_{t.get('tytul')}_{t.get('data')}_{unique_key}"):
             st.table(pd.DataFrame(steps_data))
         
@@ -1235,7 +1238,6 @@ def render_workout_expander(row, idx, ja, is_coach=False):
             np_val = calculate_normalized_power(t_dict['streams']['watts']) if has_valid_watts else 0
             k4.markdown(f"<div class='metric-card'><div class='metric-val'>{np_val} W</div><div class='metric-label'>{tr('NP (Moc)')}</div></div>", unsafe_allow_html=True)
 
-            # WIZUALIZACJA ZAPLANOWANYCH KROKÓW W WYKONANYM TRENINGU
             if t_dict.get('kroki'):
                 st.markdown(f"### 🎯 {tr('Zaplanowany Trening:')}")
                 fig_plan = go.Figure()
@@ -1256,7 +1258,6 @@ def render_workout_expander(row, idx, ja, is_coach=False):
                 fig_plan.update_layout(template="plotly_dark", height=200, showlegend=False, xaxis_title=tr("Czas (min)"), yaxis=dict(showticklabels=False), margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig_plan, use_container_width=True)
                 
-                # Zmiana z st.expander na st.toggle dla bezpieczeństwa:
                 if st.toggle(tr("Zobacz Rozpiskę"), key=f"tog_rozp_comp_{idx}_{t_dict['data']}"):
                     st.table(pd.DataFrame(steps_data))
                     
@@ -1324,15 +1325,13 @@ def render_onboarding_view(zawodnik):
             praca = c1.selectbox(tr("Praca:"), ["Siedząca (biuro)", "Fizyczna", "Mieszana", "Wymagająca stania"])
             sen = c2.number_input(tr("Średnia ilość snu (h)"), 4.0, 12.0, 7.5)
             
-            st.markdown(f"### {tr('Harmonogram dostępności (godziny/dzień)')}")
+            st.markdown(f"### {tr('Harmonogram dostępności (godziny:minuty/dzień)')}")
             d1, d2, d3, d4, d5, d6, d7 = st.columns(7)
-            t_pn = d1.number_input("PN", 0.0, 10.0, 1.0)
-            t_wt = d2.number_input("WT", 0.0, 10.0, 1.0)
-            t_sr = d3.number_input("ŚR", 0.0, 10.0, 1.0)
-            t_cz = d4.number_input("CZ", 0.0, 10.0, 1.0)
-            t_pt = d5.number_input("PT", 0.0, 10.0, 1.0)
-            t_so = d6.number_input("SO", 0.0, 10.0, 2.0)
-            t_nd = d7.number_input("ND", 0.0, 10.0, 2.0)
+            for d, day_name in zip([d1,d2,d3,d4,d5,d6,d7], ["PN", "WT", "SR", "CZ", "PT", "SO", "ND"]):
+                with d:
+                    st.markdown(f"**{day_name}**")
+                    st.number_input(tr("Godz."), 0, 24, 1 if day_name not in ["SO", "ND"] else 2, key=f"h_{day_name}")
+                    st.number_input(tr("Min."), 0, 59, 0, key=f"m_{day_name}")
             
         with t3:
             st.markdown(f"### {tr('Cele i Doświadczenie')}")
@@ -1378,6 +1377,10 @@ def render_onboarding_view(zawodnik):
             p4 = st.slider(tr("Zdolność do odpoczynku:"), 1, 5, 3)
             
             st.markdown("---")
+            st.markdown(f"### {tr('Priorytet')}")
+            p5 = st.slider(tr("Priorytet treningu (1-10):"), 1, 10, 5, help=tr("1 = Życie prywatne, 10 = Trening 100%"))
+            
+            st.markdown("---")
             st.markdown(f"### {tr('Oczekiwania wobec trenera')}")
             comm_style = st.selectbox(tr("Preferowany styl komunikacji:"), [
                 tr("Zbalansowany (dane + wsparcie)"),
@@ -1395,11 +1398,19 @@ def render_onboarding_view(zawodnik):
                 "choroby": {"cukrzyca": cukrzyca, "astma": astma, "serce": serce, "plecy": plecy},
                 "urazy": urazy,
                 "praca": praca, "sen": sen,
-                "czas_trening": {"PN": t_pn, "WT": t_wt, "SR": t_sr, "CZ": t_cz, "PT": t_pt, "SO": t_so, "ND": t_nd},
+                "czas_trening": {
+                    "PN": f"{st.session_state.h_PN}h {st.session_state.m_PN}m",
+                    "WT": f"{st.session_state.h_WT}h {st.session_state.m_WT}m",
+                    "SR": f"{st.session_state.h_SR}h {st.session_state.m_SR}m",
+                    "CZ": f"{st.session_state.h_CZ}h {st.session_state.m_CZ}m",
+                    "PT": f"{st.session_state.h_PT}h {st.session_state.m_PT}m",
+                    "SO": f"{st.session_state.h_SO}h {st.session_state.m_SO}m",
+                    "ND": f"{st.session_state.h_ND}h {st.session_state.m_ND}m"
+                },
                 "lata_sport": lata_sport, "cel_glowny": cel_glowny, "zawody_a": zawody_a,
                 "sprzet": {"basen": basen, "trenazer": trenazer, "pomiar_mocy": pomiar_mocy, "silownia": silownia},
                 "slabe_strony": slabe_strony,
-                "psychologia": {"bol": p1, "stres": p2, "dyscyplina": p3, "odpoczynek": p4},
+                "psychologia": {"bol": p1, "stres": p2, "dyscyplina": p3, "odpoczynek": p4, "priorytet": p5},
                 "historia": {"avg_vol": avg_vol, "est_ftp": est_ftp, "est_lthr": est_lthr, "est_maxhr": est_maxhr, "test_week": test_week},
                 "komunikacja": comm_style,
                 "data_wypelnienia": str(date.today())
@@ -2016,9 +2027,17 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
             st.markdown(f"#### {tr('Styl życia')}")
             st.write(f"**{tr('Praca:')}** {info.get('praca')} | **{tr('Średni sen:')}** {info.get('sen')} h")
             
-            st.markdown(f"#### {tr('Harmonogram dostępności (godziny/dzień)')}")
+            st.markdown(f"#### {tr('Harmonogram dostępności (godziny:minuty/dzień)')}")
             ct = info.get("czas_trening", {})
-            st.write(f"PN: {ct.get('PN')}h | WT: {ct.get('WT')}h | ŚR: {ct.get('SR')}h | CZ: {ct.get('CZ')}h | PT: {ct.get('PT')}h | SO: {ct.get('SO')}h | ND: {ct.get('ND')}h")
+            
+            def fmt_ct(val):
+                if isinstance(val, (int, float)):
+                    h = int(val)
+                    m = int((val - h) * 60)
+                    return f"{h}h {m}m"
+                return val
+                
+            st.write(f"PN: {fmt_ct(ct.get('PN'))} | WT: {fmt_ct(ct.get('WT'))} | ŚR: {fmt_ct(ct.get('SR'))} | CZ: {fmt_ct(ct.get('CZ'))} | PT: {fmt_ct(ct.get('PT'))} | SO: {fmt_ct(ct.get('SO'))} | ND: {fmt_ct(ct.get('ND'))}")
             
             st.markdown(f"#### {tr('Cele i Doświadczenie')}")
             st.write(f"**{tr('Staż w sportach:')}** {info.get('lata_sport')} lat")
@@ -2039,6 +2058,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
             st.write(f"- {tr('Koncentracja w stresie:')} **{psy.get('stres')}/5**")
             st.write(f"- {tr('Dyscyplina treningowa:')} **{psy.get('dyscyplina')}/5**")
             st.write(f"- {tr('Zdolność do odpoczynku:')} **{psy.get('odpoczynek')}/5**")
+            st.write(f"- {tr('Priorytet treningu (1-10):')} **{psy.get('priorytet', '-')}**")
             st.write(f"- {tr('Komunikacja:')} **{info.get('komunikacja', tr('Zbalansowany (dane + wsparcie)'))}**")
 
         else:
