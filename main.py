@@ -241,7 +241,8 @@ TRANSLATIONS = {
         "Godz.": "Hrs",
         "Min.": "Mins",
         "Priorytet treningu (1-10):": "Training Priority (1-10):",
-        "1 = Życie prywatne, 10 = Trening 100%": "1 = Personal life, 10 = Training 100%"
+        "1 = Życie prywatne, 10 = Trening 100%": "1 = Personal life, 10 = Training 100%",
+        "Ze względów bezpieczeństwa i prywatności, tylko zawodnik ma dostęp do swoich danych logowania Garmin Connect.": "For security and privacy reasons, only the athlete has access to their Garmin Connect login credentials."
     }
 }
 
@@ -1985,16 +1986,19 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
         
     with tab5:
         st.markdown(f"### {tr('🔵 Autoryzacja Garmin Connect')}")
-        st.markdown(f"<span style='color:#8BA1B8;'>{tr('Podaj dane logowania, aby aplikacja Endura IQ mogła automatycznie wysyłać zaplanowane treningi prosto do Twojego kalendarza w zegarku.')}</span>", unsafe_allow_html=True)
-        creds = db["garmin_creds"].get(sel_user, {})
-        with st.form("garmin_form"):
-            g_email = st.text_input(tr("E-mail Garmin"), value=creds.get("email", ""))
-            g_pass = st.text_input(tr("Hasło Garmin"), value=creds.get("password", ""), type="password")
-            if st.form_submit_button(tr("Zapisz połączenie z chmurą")):
-                temp_gc = db["garmin_creds"]
-                temp_gc[sel_user] = {"email": g_email, "password": g_pass}
-                db["garmin_creds"] = temp_gc
-                st.success(tr("Zapisano dane. Od teraz możesz wysyłać treningi prosto z kalendarza!"))
+        if st.session_state.role == "coach":
+            st.info(tr("Ze względów bezpieczeństwa i prywatności, tylko zawodnik ma dostęp do swoich danych logowania Garmin Connect."))
+        else:
+            st.markdown(f"<span style='color:#8BA1B8;'>{tr('Podaj dane logowania, aby aplikacja Endura IQ mogła automatycznie wysyłać zaplanowane treningi prosto do Twojego kalendarza w zegarku.')}</span>", unsafe_allow_html=True)
+            creds = db["garmin_creds"].get(sel_user, {})
+            with st.form("garmin_form"):
+                g_email = st.text_input(tr("E-mail Garmin"), value=creds.get("email", ""))
+                g_pass = st.text_input(tr("Hasło Garmin"), value=creds.get("password", ""), type="password")
+                if st.form_submit_button(tr("Zapisz połączenie z chmurą")):
+                    temp_gc = db["garmin_creds"]
+                    temp_gc[sel_user] = {"email": g_email, "password": g_pass}
+                    db["garmin_creds"] = temp_gc
+                    st.success(tr("Zapisano dane. Od teraz możesz wysyłać treningi prosto z kalendarza!"))
                 
     with tab6:
         sel_user_disp = get_display_name(sel_user)
