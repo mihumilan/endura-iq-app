@@ -353,7 +353,52 @@ for key in ["treningi", "strefy", "wyscigi", "biblioteka", "fizjologia", "power_
 if isinstance(db["strefy"], list): db["strefy"] = {}
 if isinstance(db["garmin_creds"], list): db["garmin_creds"] = {}
 if isinstance(db["zawodnicy_info"], list): db["zawodnicy_info"] = {}
-if "session_treningi" not in st.session_state: st.session_state.session_treningi = list(db["treningi"])
+
+# --- AUTO-HEALER BAZY DANYCH (KONSOLIDACJA TRENINGÓW) ---
+if "session_treningi" not in st.session_state: 
+    st.session_state.session_treningi = list(db["treningi"])
+
+def consolidate_workouts():
+    db_treningi = list(db.get("treningi", []))
+    unexecuted = []
+    executed = []
+    
+    for w in db_treningi:
+        if w.get("wykonany"):
+            executed.append(w)
+        else:
+            unexecuted.append(w)
+            
+    modified = False
+    new_db = []
+    
+    for ew in executed:
+        # Szukamy niezrealizowanego planu dla tego samego zawodnika, z tego samego dnia i w TEJ SAMEJ DYSCYPLINIE
+        matching_plan = next((p for p in unexecuted if p.get("zawodnik") == ew.get("zawodnik") and str(p.get("data")) == str(ew.get("data")) and p.get("dyscyplina") == ew.get("dyscyplina")), None)
+        
+        if matching_plan:
+            if not ew.get("plan_czas"):
+                ew["plan_czas"] = matching_plan.get("czas", 0)
+                ew["plan_tss"] = matching_plan.get("tss", 0)
+                ew["kroki"] = matching_plan.get("kroki", [])
+            
+            # Garmin czesto wysyla sucha nazwe "Bieganie 18km". Zastapmy to profesjonalna nazwa planu np "20x3min"
+            if matching_plan.get("tytul"):
+                ew["tytul"] = matching_plan.get("tytul")
+                
+            unexecuted = [p for p in unexecuted if p != matching_plan]
+            modified = True
+            
+        new_db.append(ew)
+        
+    new_db.extend(unexecuted)
+    
+    if modified:
+        db["treningi"] = new_db
+        st.session_state.session_treningi = new_db
+
+# Uruchom auto-konsolidacje w tle
+consolidate_workouts()
 
 # ==========================================
 # 3. FUNKCJE POMOCNICZE I ALGORYTMY
@@ -904,34 +949,6 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
             "komentarze_treningu": []
         }
         
-        unexecuted_matches = [w for w in st.session_state.session_treningi 
-                              if w.get("zawodnik") == zawodnik 
-                              and not w.get("wykonany") 
-                              and w.get("dyscyplina") == parsed['sport']
-                              and str(w.get("data")) == act_date]
-                              
-        if unexecuted_matches:
-            old_w = unexecuted_matches[0]
-            new_session = [w for w in st.session_state.session_treningi if w is not old_w]
-            st.session_state.session_treningi = new_session
-            
-            new_db = []
-            for w in db.get("treningi", []):
-                if (w.get("zawodnik") == old_w.get("zawodnik") and
-                    str(w.get("data")) == str(old_w.get("data")) and
-                    w.get("tytul") == old_w.get("tytul") and
-                    w.get("dyscyplina") == old_w.get("dyscyplina") and
-                    not w.get("wykonany")):
-                    continue
-                new_db.append(w)
-            db["treningi"] = new_db
-            
-            new_entry['plan_czas'] = old_w.get('czas', 0)
-            new_entry['plan_tss'] = old_w.get('tss', 0)
-            new_entry['kroki'] = old_w.get('kroki', [])
-            if old_w.get('tytul') and old_w.get('tytul') != tr(parsed['sport']):
-                new_entry['tytul'] = old_w.get('tytul')
-                
         save_data(new_entry)
         added_count += 1
         
@@ -1524,6 +1541,7 @@ if menu == tr("Dodaj aktywność"):
                         new_entry['plan_czas'] = old_w.get('czas', 0)
                         new_entry['plan_tss'] = old_w.get('tss', 0)
                         new_entry['kroki'] = old_w.get('kroki', [])
+                        new_entry['tytul'] = old_w.get('tytul', new_entry['tytul'])
                     save_data(new_entry); st.success(tr("Zapisano!")); st.session_state.pop('form_data', None); st.rerun()
 
         st.markdown(f"### {tr('Ostatnie Aktywności')}")
@@ -2103,7 +2121,7 @@ elif menu == tr("Kreator"):
             elif "Tempo" in w_mode: t1=wk1.text_input(tr("Od"),"4:00", key="wt1"); t2=wk2.text_input(tr("Do"),"3:50", key="wt2"); wv1=pace_str_to_float(t1); wv2=pace_str_to_float(t2)
             else: wv1=st.slider("RPE",1,10,8, key="wr1"); wv2=wv1
             st.markdown(f"<h4 style='color: #1976D2 !important; font-size: 1em;'>{tr('Odpoczynek')}</h4>", unsafe_allow_html=True)
-            r_jedn = radio(tr("Jednostka")+" 2", [tr("Czas"), tr("Dystans")], horizontal=True, key="r_jedn", label_visibility="collapsed")
+            r_jedn = st.radio(tr("Jednostka")+" 2", [tr("Czas"), tr("Dystans")], horizontal=True, key="r_jedn", label_visibility="collapsed")
             if r_jedn == tr("Czas"): r_v_time = st.number_input(tr("Czas (min)"), 0.5, 300.0, 2.0, step=0.5, key="r_time"); r_v_dist=0.0; r_is_dist=False
             else: r_v_time=0.0; r_v_dist = st.number_input(tr("Dystans (km)"), 0.1, 50.0, 0.5, step=0.1, key="r_dist"); r_is_dist=True
             r_mode = st.selectbox(tr("Intensywność")+" 2", ["Moc %FTP", "Waty", "Tętno", "Tempo", "RPE"], key="r_mode", label_visibility="collapsed")
