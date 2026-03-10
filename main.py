@@ -373,7 +373,6 @@ def consolidate_workouts():
     new_db = []
     
     for ew in executed:
-        # Szukamy niezrealizowanego planu dla tego samego zawodnika, z tego samego dnia i w TEJ SAMEJ DYSCYPLINIE
         matching_plan = next((p for p in unexecuted if p.get("zawodnik") == ew.get("zawodnik") and str(p.get("data")) == str(ew.get("data")) and p.get("dyscyplina") == ew.get("dyscyplina")), None)
         
         if matching_plan:
@@ -382,7 +381,6 @@ def consolidate_workouts():
                 ew["plan_tss"] = matching_plan.get("tss", 0)
                 ew["kroki"] = matching_plan.get("kroki", [])
             
-            # Garmin czesto wysyla sucha nazwe "Bieganie 18km". Zastapmy to profesjonalna nazwa planu np "20x3min"
             if matching_plan.get("tytul"):
                 ew["tytul"] = matching_plan.get("tytul")
                 
@@ -397,7 +395,6 @@ def consolidate_workouts():
         db["treningi"] = new_db
         st.session_state.session_treningi = new_db
 
-# Uruchom auto-konsolidacje w tle
 consolidate_workouts()
 
 # ==========================================
@@ -949,6 +946,34 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
             "komentarze_treningu": []
         }
         
+        unexecuted_matches = [w for w in st.session_state.session_treningi 
+                              if w.get("zawodnik") == zawodnik 
+                              and not w.get("wykonany") 
+                              and w.get("dyscyplina") == parsed['sport']
+                              and str(w.get("data")) == act_date]
+                              
+        if unexecuted_matches:
+            old_w = unexecuted_matches[0]
+            new_session = [w for w in st.session_state.session_treningi if w is not old_w]
+            st.session_state.session_treningi = new_session
+            
+            new_db = []
+            for w in db.get("treningi", []):
+                if (w.get("zawodnik") == old_w.get("zawodnik") and
+                    str(w.get("data")) == str(old_w.get("data")) and
+                    w.get("tytul") == old_w.get("tytul") and
+                    w.get("dyscyplina") == old_w.get("dyscyplina") and
+                    not w.get("wykonany")):
+                    continue
+                new_db.append(w)
+            db["treningi"] = new_db
+            
+            new_entry['plan_czas'] = old_w.get('czas', 0)
+            new_entry['plan_tss'] = old_w.get('tss', 0)
+            new_entry['kroki'] = old_w.get('kroki', [])
+            if old_w.get('tytul') and old_w.get('tytul') != tr(parsed['sport']):
+                new_entry['tytul'] = old_w.get('tytul')
+                
         save_data(new_entry)
         added_count += 1
         
@@ -1207,7 +1232,29 @@ def render_workout_expander(row, idx, ja, is_coach=False):
             np_val = calculate_normalized_power(t_dict['streams']['watts']) if has_valid_watts else 0
             k4.markdown(f"<div class='metric-card'><div class='metric-val'>{np_val} W</div><div class='metric-label'>{tr('NP (Moc)')}</div></div>", unsafe_allow_html=True)
 
-            st.markdown("---")
+            # WIZUALIZACJA ZAPLANOWANYCH KROKÓW W WYKONANYM TRENINGU
+            if t_dict.get('kroki'):
+                st.markdown(f"### 🎯 {tr('Zaplanowany Trening:')}")
+                fig_plan = go.Figure()
+                ct = 0
+                steps_data = []
+                for idx_step, k in enumerate(t_dict['kroki']):
+                    v_desc = f"{k.get('dystans_km', 0)} km" if k.get('is_distance') else f"{int(k.get('czas_total_sec', 0)/60)} min"
+                    dur = k.get('czas_total_sec', 300)/60
+                    if dur == 0: dur = 5
+                    avg_val = (k.get('val_min', 0) + k.get('val_max', 0)) / 2
+                    if avg_val == 0: avg_val = 50 
+                    display_y = 100 / avg_val if "Tempo" in k.get('tryb', '') and avg_val > 0 else avg_val
+                    intensity_label = f"{float_to_pace_str(k['val_min'])} - {float_to_pace_str(k['val_max'])}" if "Tempo" in k.get('tryb', '') else f"{int(k.get('val_min',0))}-{int(k.get('val_max',0))}"
+                    fig_plan.add_trace(go.Bar(x=[ct+dur/2], y=[display_y], width=[dur], name=f"{tr(k['typ'])}", marker_color=KOLORY_BLOKOW.get(k['typ']), text=f"{v_desc}<br>{intensity_label}", textposition="auto"))
+                    ct += dur
+                    steps_data.append({"#": idx_step+1, tr("Typ"): tr(k['typ']), tr("Czas/Dystans"): v_desc, "Task": f"{tr(k.get('tryb', ''))}: {intensity_label}"})
+
+                fig_plan.update_layout(template="plotly_dark", height=200, showlegend=False, xaxis_title=tr("Czas (min)"), yaxis=dict(showticklabels=False), margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_plan, use_container_width=True)
+                with st.expander(tr("Zobacz Rozpiskę")): st.table(pd.DataFrame(steps_data))
+                st.markdown("---")
+
             st.markdown(f"### 📋 {tr('Ocena Treningu (RPE i Samopoczucie)')}")
             col_rpe1, col_rpe2 = st.columns([3, 1])
             col_rpe1.markdown(f"**RPE:** {t_dict.get('rpe', 5)}/10 | **Samopoczucie:** {t_dict.get('feeling', '🙂')}")
