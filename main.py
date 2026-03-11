@@ -198,6 +198,7 @@ TRANSLATIONS = {
         "Najsłabsze strony:": "Weaknesses:",
         "Dostępny Sprzęt": "Available Equipment",
         "Basen/Wody otwarte:": "Pool/Open water:",
+        "Siłownia:": "Gym:",
         "Trenażer Smart:": "Smart Trainer:",
         "Pomiar mocy:": "Power meter:",
         "Profil Psychologiczny (1-5)": "Psychological Profile (1-5)",
@@ -257,7 +258,9 @@ TRANSLATIONS = {
         "Wpisz 'USUŃ' aby potwierdzić:": "Type 'DELETE' to confirm:",
         "Trwale usuń moje konto": "Permanently delete my account",
         "Wpisz słowo USUŃ poprawnie.": "Type the word correctly.",
-        "USUŃ": "DELETE"
+        "USUŃ": "DELETE",
+        "Automatyczna synchronizacja w tle...": "Automatic background sync...",
+        "Pobrano automatycznie nowych treningów:": "Automatically downloaded new workouts:"
     }
 }
 
@@ -680,11 +683,10 @@ def get_next_race(zawodnik):
 def send_workout_to_garmin_connect(email, password, workout_data):
     import garminconnect
     
-    # Odszyfrowanie hasła przed wysłaniem do Garmina
     try:
         decrypted_password = cipher_suite.decrypt(password.encode('utf-8')).decode('utf-8')
     except Exception:
-        decrypted_password = password # Jeśli to stare hasło (sprzed aktualizacji), weź je z bazy jak dawniej
+        decrypted_password = password
         
     client = garminconnect.Garmin(email, decrypted_password)
     client.login()
@@ -1507,7 +1509,6 @@ if not st.session_state.logged_in:
                 elif len(reg_login) < 3 or len(reg_name) < 3 or len(reg_pass) < 4 or "@" not in reg_email:
                     st.error(tr("Wypełnij poprawnie wszystkie pola (Login i Imię min. 3 znaki, Hasło min. 4, poprawny email)."))
                 else:
-                    # Szyfrowanie hasła bcrypt
                     hashed_pw = bcrypt.hashpw(reg_pass.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
                     users[reg_login] = {"password": hashed_pw, "role": "athlete", "fullname": reg_name, "email": reg_email}
                     db["users_db"] = users
@@ -1552,8 +1553,29 @@ menu = st.sidebar.radio(tr("MENU"), menu_opts, format_func=format_menu)
 st.sidebar.markdown("<br>", unsafe_allow_html=True)
 if st.sidebar.button(tr("Wyloguj")): st.session_state.logged_in=False; st.rerun()
 
-# --- 1. DODAJ AKTYWNOŚĆ (ZAWODNIK) ---
+# --- AUTO-SYNC W TLE (DLA ZAWODNIKA) ---
 if menu == tr("Dodaj aktywność"):
+    
+    if "auto_synced" not in st.session_state:
+        st.session_state.auto_synced = False
+        
+    if not st.session_state.auto_synced:
+        g_creds = db["garmin_creds"].get(ja, {})
+        if g_creds.get("email") and g_creds.get("password"):
+            with st.spinner(tr("Automatyczna synchronizacja w tle...")):
+                try:
+                    added = sync_from_garmin(ja, g_creds["email"], g_creds["password"], 5)
+                    st.session_state.auto_synced = True
+                    if added > 0:
+                        consolidate_workouts()
+                        st.toast(f"{tr('Pobrano automatycznie nowych treningów:')} {added}")
+                        time.sleep(1)
+                        st.rerun()
+                except Exception:
+                    st.session_state.auto_synced = True
+        else:
+            st.session_state.auto_synced = True
+
     st.title(f"{tr('Cześć')} {ja_disp.split(' ')[0]}!")
     next_race = get_next_race(ja)
     if next_race:
@@ -1580,7 +1602,7 @@ if menu == tr("Dodaj aktywność"):
     with col_side: render_tp_weekly_list(get_df(ja))
     with col_main:
         
-        with st.expander(tr("🔄 Pobierz automatycznie z Garmin Connect"), expanded=True):
+        with st.expander(tr("🔄 Pobierz automatycznie z Garmin Connect"), expanded=False):
             st.markdown(f"<span style='color:#8BA1B8; font-size:0.9em;'>{tr('Aplikacja sama znajdzie Twoje ostatnie treningi w chmurze Garmina, pobierze ich ukryte pliki TCX i dokona pełnej analizy.')}</span>", unsafe_allow_html=True)
             g_creds = db["garmin_creds"].get(ja, {})
             
@@ -2032,14 +2054,12 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
             creds = db["garmin_creds"].get(sel_user, {})
             with st.form("garmin_form"):
                 g_email = st.text_input(tr("E-mail Garmin"), value=creds.get("email", ""))
-                # Wyświetl zaszyfrowane hasło jako ukryte jeśli istnieje, ale nie ujawniaj samego hash'a.
                 has_pass_saved = True if creds.get("password") else False
                 pass_ph = "********" if has_pass_saved else ""
                 
                 g_pass = st.text_input(tr("Hasło Garmin"), value="", placeholder=pass_ph, type="password")
                 if st.form_submit_button(tr("Zapisz połączenie z chmurą")):
                     temp_gc = db["garmin_creds"]
-                    # Szyfrowanie nowego hasła jeśli zostało podane
                     if g_pass:
                         encrypted_pass = cipher_suite.encrypt(g_pass.encode('utf-8')).decode('utf-8')
                         temp_gc[sel_user] = {"email": g_email, "password": encrypted_pass}
