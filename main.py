@@ -15,6 +15,14 @@ import io
 import zipfile
 from streamlit_calendar import calendar
 
+# --- KRYPTOGRAFIA (BEZPIECZEŃSTWO RODO) ---
+import bcrypt
+from cryptography.fernet import Fernet
+
+# Tajny klucz szyfrowania do Garmina (nie zmieniaj go, by nie utracić dostępu do już zapisanych haseł)
+FERNET_KEY = b'RW5kdXJhSVFfU2VjcmV0S2V5X0Zvcl9HYXJtaW5fMzI='
+cipher_suite = Fernet(FERNET_KEY)
+
 st.set_page_config(page_title="Endura IQ", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 
 # --- MODUŁ BAZY DANYCH MONGODB (CLOUD) ---
@@ -242,7 +250,14 @@ TRANSLATIONS = {
         "Min.": "Mins",
         "Priorytet treningu (1-10):": "Training Priority (1-10):",
         "1 = Życie prywatne, 10 = Trening 100%": "1 = Personal life, 10 = Training 100%",
-        "Ze względów bezpieczeństwa i prywatności, tylko zawodnik ma dostęp do swoich danych logowania Garmin Connect.": "For security and privacy reasons, only the athlete has access to their Garmin Connect login credentials."
+        "Ze względów bezpieczeństwa i prywatności, tylko zawodnik ma dostęp do swoich danych logowania Garmin Connect.": "For security and privacy reasons, only the athlete has access to their Garmin Connect login credentials.",
+        "⚙️ Konto": "⚙️ Account",
+        "Usuwanie Konta": "Account Deletion",
+        "Uwaga: Ta operacja jest nieodwracalna. Zostaną usunięte wszystkie Twoje treningi, statystyki, wiadomości i integracje.": "Warning: This operation is irreversible. All your workouts, stats, messages, and integrations will be deleted.",
+        "Wpisz 'USUŃ' aby potwierdzić:": "Type 'DELETE' to confirm:",
+        "Trwale usuń moje konto": "Permanently delete my account",
+        "Wpisz słowo USUŃ poprawnie.": "Type the word correctly.",
+        "USUŃ": "DELETE"
     }
 }
 
@@ -407,8 +422,18 @@ consolidate_workouts()
 # ==========================================
 def check_login(u, p):
     users = db.get("users_db", {})
-    if u in users and users[u].get("password") == p:
-        return True, users[u].get("role", "athlete")
+    user_data = users.get(u)
+    if not user_data: return False, None
+    
+    stored_pw = user_data.get("password", "")
+    
+    if stored_pw.startswith("$2b$"):
+        if bcrypt.checkpw(p.encode('utf-8'), stored_pw.encode('utf-8')):
+            return True, user_data.get("role", "athlete")
+    else:
+        if p == stored_pw:
+            return True, user_data.get("role", "athlete")
+            
     return False, None
 
 def get_display_name(login):
@@ -654,7 +679,14 @@ def get_next_race(zawodnik):
 
 def send_workout_to_garmin_connect(email, password, workout_data):
     import garminconnect
-    client = garminconnect.Garmin(email, password)
+    
+    # Odszyfrowanie hasła przed wysłaniem do Garmina
+    try:
+        decrypted_password = cipher_suite.decrypt(password.encode('utf-8')).decode('utf-8')
+    except Exception:
+        decrypted_password = password # Jeśli to stare hasło (sprzed aktualizacji), weź je z bazy jak dawniej
+        
+    client = garminconnect.Garmin(email, decrypted_password)
     client.login()
     
     sport_str = workout_data.get('dyscyplina', 'Bieganie')
@@ -864,7 +896,12 @@ def parse_tcx_pro(file_obj, user_zones):
 def sync_from_garmin(zawodnik, email, password, limit=10):
     import garminconnect
     
-    client = garminconnect.Garmin(email, password)
+    try:
+        decrypted_password = cipher_suite.decrypt(password.encode('utf-8')).decode('utf-8')
+    except Exception:
+        decrypted_password = password
+        
+    client = garminconnect.Garmin(email, decrypted_password)
     client.login()
     
     activities = client.get_activities(0, limit)
@@ -1470,7 +1507,9 @@ if not st.session_state.logged_in:
                 elif len(reg_login) < 3 or len(reg_name) < 3 or len(reg_pass) < 4 or "@" not in reg_email:
                     st.error(tr("Wypełnij poprawnie wszystkie pola (Login i Imię min. 3 znaki, Hasło min. 4, poprawny email)."))
                 else:
-                    users[reg_login] = {"password": reg_pass, "role": "athlete", "fullname": reg_name, "email": reg_email}
+                    # Szyfrowanie hasła bcrypt
+                    hashed_pw = bcrypt.hashpw(reg_pass.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                    users[reg_login] = {"password": hashed_pw, "role": "athlete", "fullname": reg_name, "email": reg_email}
                     db["users_db"] = users
                     
                     zaw_list = db.get("zawodnicy_list", [])
@@ -1874,9 +1913,9 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
     st.title(tr("Dane Zawodnika i Fizjologia"))
     sel_user = st.selectbox(tr("Zawodnik:"), ZAWODNICY, format_func=get_display_name) if st.session_state.role == "coach" else ja
     
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([tr("Profil Mocy (CP)"), tr("Rekordy Biegowe"), tr("Badania & Trendy"), tr("Waga"), tr("Integracje 🔗"), tr("📝 Ankieta Profilowa")])
+    tabs = st.tabs([tr("Profil Mocy (CP)"), tr("Rekordy Biegowe"), tr("Badania & Trendy"), tr("Waga"), tr("Integracje 🔗"), tr("📝 Ankieta Profilowa")] + ([tr("⚙️ Konto")] if st.session_state.role == "athlete" else []))
 
-    with tab1:
+    with tabs[0]:
         st.markdown(f"### {tr('Profil Mocy Rowerowej (Automatyczny)')}")
         df_all = get_df(sel_user)
         df_90 = df_all[(df_all['dyscyplina'] == 'Rower') & (df_all['wykonany'] == True)].copy()
@@ -1919,7 +1958,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
                         db["power_profile"] = [x for x in db["power_profile"] if x['zawodnik'] != sel_user] + [{"zawodnik": sel_user, "5s":cp5s, "10s":cp10s, "20s":cp20s, "1m":cp1m, "5m":cp5m, "10m":cp10m, "20m":cp20m, "60m":cp60m}]
                         st.success(tr("Zapisano!")); st.rerun()
 
-    with tab2:
+    with tabs[1]:
         st.markdown(f"### {tr('Najlepsze Czasy Biegowe (Personal Bests)')}")
         r_prof = next((x for x in db["run_records"] if x['zawodnik'] == sel_user), {"400m":0, "1km":0, "5km":0, "10km":0, "Półmaraton":0, "Maraton":0})
         c1, c2, c3 = st.columns(3)
@@ -1942,7 +1981,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
                         db["run_records"] = [x for x in db["run_records"] if x['zawodnik'] != sel_user] + [{"zawodnik": sel_user, "400m":r400, "1km":r1, "5km":r5, "10km":r10, "Półmaraton":r21, "Maraton":r42}]
                         st.success(tr("Zapisano!")); st.rerun()
 
-    with tab3:
+    with tabs[2]:
         if st.session_state.role == "coach":
             with st.expander(tr("Dodaj Wynik Badań")):
                 with st.form("add_phys"):
@@ -1957,7 +1996,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
                 fig_ph = px.line(df_ph[df_ph['typ'] == sel_metric].sort_values('data'), x='data', y='wartosc', markers=True, title=f"{tr('Historia:')} {sel_metric}")
                 fig_ph.update_traces(line_color='#FF00E6', line_width=3); fig_ph.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'); st.plotly_chart(fig_ph, use_container_width=True)
 
-    with tab4:
+    with tabs[3]:
         st.markdown(f"### {tr('Historia Wagi')}")
         if st.session_state.role == "coach":
             with st.expander(tr("Dodaj Wagę Zawodnika")):
@@ -1984,7 +2023,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
             else: st.info(tr("Brak wpisów wagi dla tego zawodnika."))
         else: st.info(tr("Brak wpisów wagi w bazie."))
         
-    with tab5:
+    with tabs[4]:
         st.markdown(f"### {tr('🔵 Autoryzacja Garmin Connect')}")
         if st.session_state.role == "coach":
             st.info(tr("Ze względów bezpieczeństwa i prywatności, tylko zawodnik ma dostęp do swoich danych logowania Garmin Connect."))
@@ -1993,14 +2032,27 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
             creds = db["garmin_creds"].get(sel_user, {})
             with st.form("garmin_form"):
                 g_email = st.text_input(tr("E-mail Garmin"), value=creds.get("email", ""))
-                g_pass = st.text_input(tr("Hasło Garmin"), value=creds.get("password", ""), type="password")
+                # Wyświetl zaszyfrowane hasło jako ukryte jeśli istnieje, ale nie ujawniaj samego hash'a.
+                has_pass_saved = True if creds.get("password") else False
+                pass_ph = "********" if has_pass_saved else ""
+                
+                g_pass = st.text_input(tr("Hasło Garmin"), value="", placeholder=pass_ph, type="password")
                 if st.form_submit_button(tr("Zapisz połączenie z chmurą")):
                     temp_gc = db["garmin_creds"]
-                    temp_gc[sel_user] = {"email": g_email, "password": g_pass}
-                    db["garmin_creds"] = temp_gc
-                    st.success(tr("Zapisano dane. Od teraz możesz wysyłać treningi prosto z kalendarza!"))
+                    # Szyfrowanie nowego hasła jeśli zostało podane
+                    if g_pass:
+                        encrypted_pass = cipher_suite.encrypt(g_pass.encode('utf-8')).decode('utf-8')
+                        temp_gc[sel_user] = {"email": g_email, "password": encrypted_pass}
+                        db["garmin_creds"] = temp_gc
+                        st.success(tr("Zapisano dane. Od teraz możesz wysyłać treningi prosto z kalendarza!"))
+                    elif has_pass_saved and not g_pass:
+                        temp_gc[sel_user]["email"] = g_email
+                        db["garmin_creds"] = temp_gc
+                        st.success(tr("Zapisano dane (hasło pozostało bez zmian)."))
+                    else:
+                        st.error("Podaj hasło.")
                 
-    with tab6:
+    with tabs[5]:
         sel_user_disp = get_display_name(sel_user)
         st.markdown(f"### {tr('Profil Startowy (Ankieta):')} {sel_user_disp}")
         info = db["zawodnicy_info"].get(sel_user, {})
@@ -2067,6 +2119,49 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
 
         else:
             st.info(tr("Ten zawodnik nie wypełnił jeszcze ankiety startowej."))
+
+    # --- ZAKŁADKA USUWANIA KONTA (TYLKO DLA ZAWODNIKA) ---
+    if st.session_state.role == "athlete":
+        with tabs[6]:
+            st.markdown(f"### 🛑 {tr('Usuwanie Konta')}")
+            st.warning(tr("Uwaga: Ta operacja jest nieodwracalna. Zostaną usunięte wszystkie Twoje treningi, statystyki, wiadomości i integracje."))
+            
+            del_confirm = st.text_input(tr("Wpisz 'USUŃ' aby potwierdzić:"))
+            
+            if st.button(tr("Trwale usuń moje konto"), type="primary"):
+                if del_confirm == tr("USUŃ"):
+                    # 1. Usuwanie z listy zawodników
+                    db["zawodnicy_list"] = [z for z in db.get("zawodnicy_list", []) if z != ja]
+                    
+                    # 2. Usuwanie konta (loginu)
+                    users_temp = db.get("users_db", {})
+                    if ja in users_temp: 
+                        del users_temp[ja]
+                        db["users_db"] = users_temp
+                        
+                    # 3. Usuwanie powiązanych danych z list
+                    db["treningi"] = [w for w in db.get("treningi", []) if w.get("zawodnik") != ja]
+                    db["wyscigi"] = [w for w in db.get("wyscigi", []) if w.get("zawodnik") != ja]
+                    db["fizjologia"] = [w for w in db.get("fizjologia", []) if w.get("zawodnik") != ja]
+                    db["power_profile"] = [w for w in db.get("power_profile", []) if w.get("zawodnik") != ja]
+                    db["run_records"] = [w for w in db.get("run_records", []) if w.get("zawodnik") != ja]
+                    db["waga"] = [w for w in db.get("waga", []) if w.get("zawodnik") != ja]
+                    db["day_notes"] = [w for w in db.get("day_notes", []) if w.get("zawodnik") != ja]
+                    db["chat"] = [m for m in db.get("chat", []) if m.get("od") != ja and m.get("do") != ja]
+                    
+                    # 4. Usuwanie danych ze słowników
+                    for dict_key in ["strefy", "garmin_creds", "zawodnicy_info"]:
+                        temp_d = db.get(dict_key, {})
+                        if ja in temp_d:
+                            del temp_d[ja]
+                            db[dict_key] = temp_d
+                            
+                    st.success("Konto usunięte bezpowrotnie.")
+                    time.sleep(2)
+                    st.session_state.logged_in = False
+                    st.rerun()
+                else:
+                    st.error(tr("Wpisz słowo USUŃ poprawnie."))
 
 # --- 5. RAPORTY PDF ---
 elif menu == tr("Raporty"):
