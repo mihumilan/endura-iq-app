@@ -19,20 +19,19 @@ from streamlit_calendar import calendar
 import bcrypt
 from cryptography.fernet import Fernet
 
-# Tajny klucz szyfrowania do Garmina (nie zmieniaj go, by nie utracić dostępu do już zapisanych haseł)
-FERNET_KEY = b'RW5kdXJhSVFfU2VjcmV0S2V5X0Zvcl9HYXJtaW5fMzI='
+# Bezpieczne ładowanie klucza z sejfu Streamlit (Secrets)
+FERNET_KEY = st.secrets["FERNET_KEY"].encode('utf-8')
 cipher_suite = Fernet(FERNET_KEY)
 
 st.set_page_config(page_title="Endura IQ", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 
 # --- MODUŁ BAZY DANYCH MONGODB (CLOUD) ---
 import pymongo
-import urllib.parse
 
 @st.cache_resource
 def get_database_client():
-    password = urllib.parse.quote_plus("2001SOSna!")
-    uri = f"mongodb+srv://admin:{password}@cluster0.rruonnh.mongodb.net/?appName=Cluster0"
+    # Bezpieczne ładowanie hasła z sejfu Streamlit
+    uri = st.secrets["MONGO_URI"]
     return pymongo.MongoClient(uri, tls=True, tlsAllowInvalidCertificates=True)
 
 class MongoDBWrapper:
@@ -268,7 +267,9 @@ TRANSLATIONS = {
         "Wysyłanie treningów...": "Sending workouts...",
         "Pomyślnie wysłano": "Successfully sent",
         "treningów na zegarek!": "workouts to watch!",
-        "Napotkano błąd przy części treningów:": "Encountered an error with some workouts:"
+        "Napotkano błąd przy części treningów:": "Encountered an error with some workouts:",
+        "Wyrażam zgodę na przetwarzanie moich danych dotyczących zdrowia (tętno, waga, informacje o kontuzjach) w celu realizacji planu treningowego.": "I explicitly consent to the processing of my health data (heart rate, weight, injury information) for the purpose of executing the training plan.",
+        "Musisz wyrazić zgodę na przetwarzanie danych medycznych (wymóg prawny RODO).": "You must consent to the processing of medical data (GDPR legal requirement)."
     }
 }
 
@@ -373,7 +374,8 @@ KOLORY_BLOKOW = {"Rozgrzewka": "#558B2F", "Interwał": "#D32F2F", "Przerwa": "#1
 ZONE_COLORS = ["#9E9E9E", "#2196F3", "#4CAF50", "#FFC107", "#FF5722", "#D50000", "#880E4F"]
 
 if "users_db" not in db or not isinstance(db.get("users_db"), dict): 
-    db["users_db"] = {"admin": {"password": "trener123", "role": "coach", "fullname": "Administrator (Trener)"}}
+    # Dla bezpieczeństwa RODO - przy resecie bazy nowe hasło admina od razu jest hashowane
+    db["users_db"] = {"admin": {"password": bcrypt.hashpw("trener123".encode('utf-8'), bcrypt.gensalt()).decode('utf-8'), "role": "coach", "fullname": "Administrator (Trener)"}}
 if "zawodnicy_list" not in db or not isinstance(db.get("zawodnicy_list"), list):
     db["zawodnicy_list"] = []
 
@@ -438,6 +440,7 @@ def check_login(u, p):
     
     stored_pw = user_data.get("password", "")
     
+    # Obsługa starych haseł (zanim wprowadziliśmy szyfrowanie bcrypt) i nowych
     if stored_pw.startswith("$2b$"):
         if bcrypt.checkpw(p.encode('utf-8'), stored_pw.encode('utf-8')):
             return True, user_data.get("role", "athlete")
@@ -1546,12 +1549,17 @@ if not st.session_state.logged_in:
             reg_name = st.text_input(tr("Imię i Nazwisko"))
             reg_pass = st.text_input(tr("Hasło"), type="password")
             
+            st.markdown("<br>", unsafe_allow_html=True)
+            rodo_consent = st.checkbox(tr("Wyrażam zgodę na przetwarzanie moich danych dotyczących zdrowia (tętno, waga, informacje o kontuzjach) w celu realizacji planu treningowego."))
+            
             if st.button(tr("Utwórz konto")):
                 users = db.get("users_db", {})
                 if reg_login in users:
                     st.error(tr("Użytkownik o takim loginie już istnieje. Wybierz inny!"))
                 elif len(reg_login) < 3 or len(reg_name) < 3 or len(reg_pass) < 4 or "@" not in reg_email:
                     st.error(tr("Wypełnij poprawnie wszystkie pola (Login i Imię min. 3 znaki, Hasło min. 4, poprawny email)."))
+                elif not rodo_consent:
+                    st.error(tr("Musisz wyrazić zgodę na przetwarzanie danych medycznych (wymóg prawny RODO)."))
                 else:
                     hashed_pw = bcrypt.hashpw(reg_pass.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
                     users[reg_login] = {"password": hashed_pw, "role": "athlete", "fullname": reg_name, "email": reg_email}
@@ -2146,14 +2154,12 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
             creds = db["garmin_creds"].get(sel_user, {})
             with st.form("garmin_form"):
                 g_email = st.text_input(tr("E-mail Garmin"), value=creds.get("email", ""))
-                # Wyświetl zaszyfrowane hasło jako ukryte jeśli istnieje, ale nie ujawniaj samego hash'a.
                 has_pass_saved = True if creds.get("password") else False
                 pass_ph = "********" if has_pass_saved else ""
                 
                 g_pass = st.text_input(tr("Hasło Garmin"), value="", placeholder=pass_ph, type="password")
                 if st.form_submit_button(tr("Zapisz połączenie z chmurą")):
                     temp_gc = db["garmin_creds"]
-                    # Szyfrowanie nowego hasła jeśli zostało podane
                     if g_pass:
                         encrypted_pass = cipher_suite.encrypt(g_pass.encode('utf-8')).decode('utf-8')
                         temp_gc[sel_user] = {"email": g_email, "password": encrypted_pass}
