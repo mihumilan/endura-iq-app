@@ -260,7 +260,15 @@ TRANSLATIONS = {
         "Wpisz słowo USUŃ poprawnie.": "Type the word correctly.",
         "USUŃ": "DELETE",
         "Automatyczna synchronizacja w tle...": "Automatic background sync...",
-        "Pobrano automatycznie nowych treningów:": "Automatically downloaded new workouts:"
+        "Pobrano automatycznie nowych treningów:": "Automatically downloaded new workouts:",
+        "📤 Wyślij nadchodzące treningi na zegarek (7 dni)": "📤 Send upcoming workouts to watch (7 days)",
+        "Wyślij wszystkie zaplanowane treningi na najbliższe 7 dni jednym kliknięciem.": "Send all planned workouts for the next 7 days with one click.",
+        "🚀 Wyślij zaplanowany tydzień": "🚀 Send planned week",
+        "Brak zaplanowanych treningów strukturalnych na najbliższe 7 dni.": "No structured workouts planned for the next 7 days.",
+        "Wysyłanie treningów...": "Sending workouts...",
+        "Pomyślnie wysłano": "Successfully sent",
+        "treningów na zegarek!": "workouts to watch!",
+        "Napotkano błąd przy części treningów:": "Encountered an error with some workouts:"
     }
 }
 
@@ -1638,6 +1646,53 @@ if menu == tr("Dodaj aktywność"):
     with col_side: render_tp_weekly_list(get_df(ja))
     with col_main:
         
+        # --- ZBIORCZE WYSYŁANIE PLANU NA ZEGAREK (7 DNI) ---
+        with st.expander(tr("📤 Wyślij nadchodzące treningi na zegarek (7 dni)"), expanded=False):
+            st.markdown(f"<span style='color:#8BA1B8; font-size:0.9em;'>{tr('Wyślij wszystkie zaplanowane treningi na najbliższe 7 dni jednym kliknięciem.')}</span>", unsafe_allow_html=True)
+            if st.button(tr("🚀 Wyślij zaplanowany tydzień")):
+                g_creds = db["garmin_creds"].get(ja, {})
+                if not g_creds.get("email") or not g_creds.get("password"):
+                    st.warning(tr("Brak danych logowania do Garmin Connect. Uzupełnij je w zakładce 'Dane Zawodnika' -> 'Integracje 🔗'."))
+                else:
+                    today = date.today()
+                    next_week = today + timedelta(days=7)
+                    
+                    to_send = []
+                    for w in st.session_state.session_treningi:
+                        if w.get("zawodnik") == ja and not w.get("wykonany"):
+                            try:
+                                w_date = pd.to_datetime(w["data"]).date()
+                                if today <= w_date <= next_week and w.get("kroki"):
+                                    to_send.append(w)
+                            except:
+                                pass
+                                
+                    if not to_send:
+                        st.info(tr("Brak zaplanowanych treningów strukturalnych na najbliższe 7 dni."))
+                    else:
+                        progress_text = tr("Wysyłanie treningów...")
+                        my_bar = st.progress(0, text=progress_text)
+                        
+                        success_count = 0
+                        error_msg = ""
+                        
+                        for i, w in enumerate(to_send):
+                            try:
+                                ok, msg = send_workout_to_garmin_connect(g_creds["email"], g_creds["password"], w)
+                                if ok: success_count += 1
+                                else: error_msg = msg
+                            except Exception as e:
+                                error_msg = str(e)
+                                
+                            my_bar.progress((i + 1) / len(to_send), text=f"{progress_text} ({i+1}/{len(to_send)})")
+                            time.sleep(3) # Bezpieczeństwo - blokada Garmina
+                            
+                        if success_count > 0:
+                            st.success(f"{tr('Pomyślnie wysłano')} {success_count} {tr('treningów na zegarek!')}")
+                            st.balloons()
+                        if error_msg:
+                            st.error(f"{tr('Napotkano błąd przy części treningów:')} {error_msg}")
+                            
         with st.expander(tr("🔄 Pobierz automatycznie z Garmin Connect"), expanded=False):
             st.markdown(f"<span style='color:#8BA1B8; font-size:0.9em;'>{tr('Aplikacja sama znajdzie Twoje ostatnie treningi w chmurze Garmina, pobierze ich ukryte pliki TCX i dokona pełnej analizy.')}</span>", unsafe_allow_html=True)
             g_creds = db["garmin_creds"].get(ja, {})
@@ -1650,6 +1705,7 @@ if menu == tr("Dodaj aktywność"):
                         try:
                             added = sync_from_garmin(ja, g_creds["email"], g_creds["password"], sync_limit)
                             if added > 0:
+                                consolidate_workouts()
                                 st.success(f"{tr('Zakończono! Pomyślnie pobrano i zanalizowano')} {added} {tr('nowych treningów.')}")
                                 st.balloons()
                             else:
