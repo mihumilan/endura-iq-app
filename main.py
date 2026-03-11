@@ -787,7 +787,7 @@ def send_workout_to_garmin_connect(email, password, workout_data):
     else:
         return False, f"{tr('Błąd po stronie serwerów Garmin:')} {str(res_dict)[:150]}"
 
-def parse_tcx_pro(file_obj, user_zones):
+def parse_tcx_pro(file_obj, user_zones, expected_sport=None):
     try:
         tree = ET.parse(file_obj)
         root = tree.getroot()
@@ -805,10 +805,14 @@ def parse_tcx_pro(file_obj, user_zones):
           
     act = root.find('.//tcx:Activity', ns)
     sport_attr = act.attrib.get('Sport', 'Other') if act is not None else 'Other'
-    if sport_attr == 'Running': sport = 'Bieganie'
-    elif sport_attr == 'Biking': sport = 'Rower'
-    elif 'Swim' in sport_attr: sport = 'Pływanie'
-    else: sport = 'Inne'
+    
+    if expected_sport:
+        sport = expected_sport
+    else:
+        if sport_attr == 'Running': sport = 'Bieganie'
+        elif sport_attr == 'Biking': sport = 'Rower'
+        elif 'Swim' in sport_attr: sport = 'Pływanie'
+        else: sport = 'Inne'
 
     streams = {'time': [], 'hr': [], 'watts': [], 'speed': [], 'cadence': [], 'lat': [], 'lon': []}
     laps_data = []
@@ -957,7 +961,7 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
                 if isinstance(tcx_data, str): tcx_data = tcx_data.encode('utf-8')
                 
                 tcx_file = io.BytesIO(tcx_data)
-                parsed_tcx = parse_tcx_pro(tcx_file, athlete_zones)
+                parsed_tcx = parse_tcx_pro(tcx_file, athlete_zones, expected_sport=sport)
                 
                 if parsed_tcx['time'] > 0:
                     parsed = parsed_tcx
@@ -1186,6 +1190,38 @@ def render_analysis_dashboard(t, user_settings, unique_key=""):
     if t.get('laps'):
         st.markdown(f"### {tr('⏱️ Interwały')}")
         ldf = pd.DataFrame(t['laps'])
+        
+        # DYNAMICZNY PRZELICZNIK TEMPA DLA PŁYWANIA (Wsteczna kompatybilność)
+        if 'czas' in ldf.columns and 'dystans' in ldf.columns:
+            new_tempos = []
+            for _, row in ldf.iterrows():
+                try:
+                    c_str = str(row['czas'])
+                    parts = c_str.split(':')
+                    sec = 0
+                    if len(parts) == 3: sec = int(parts[0])*3600 + int(parts[1])*60 + int(parts[2])
+                    elif len(parts) == 2: sec = int(parts[0])*60 + int(parts[1])
+                    
+                    d_str = str(row['dystans']).replace('km', '').strip()
+                    meters = float(d_str) * 1000
+                    
+                    if sec > 0 and meters > 0:
+                        if t.get('dyscyplina') == 'Pływanie':
+                            p = (sec / meters) * 100
+                            new_tempos.append(f"{int(p // 60)}:{int(p % 60):02d}/100m")
+                        else:
+                            speed_ms = meters / sec
+                            p_float = (1000 / speed_ms) / 60 if speed_ms > 0.5 else None
+                            if p_float and p_float <= 30:
+                                new_tempos.append(f"{int(p_float)}:{int((p_float - int(p_float)) * 60):02d}")
+                            else:
+                                new_tempos.append("-")
+                    else:
+                        new_tempos.append("-")
+                except:
+                    new_tempos.append(row.get('tempo', '-'))
+            ldf['tempo'] = new_tempos
+            
         cols = ["nr","czas","dystans","tempo"] if t['dyscyplina']=="Pływanie" else ["nr","czas","dystans","hr","moc","tempo"]
         st.dataframe(ldf[[c for c in cols if c in ldf.columns]], hide_index=True, use_container_width=True)
 
@@ -2054,12 +2090,14 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
             creds = db["garmin_creds"].get(sel_user, {})
             with st.form("garmin_form"):
                 g_email = st.text_input(tr("E-mail Garmin"), value=creds.get("email", ""))
+                # Wyświetl zaszyfrowane hasło jako ukryte jeśli istnieje, ale nie ujawniaj samego hash'a.
                 has_pass_saved = True if creds.get("password") else False
                 pass_ph = "********" if has_pass_saved else ""
                 
                 g_pass = st.text_input(tr("Hasło Garmin"), value="", placeholder=pass_ph, type="password")
                 if st.form_submit_button(tr("Zapisz połączenie z chmurą")):
                     temp_gc = db["garmin_creds"]
+                    # Szyfrowanie nowego hasła jeśli zostało podane
                     if g_pass:
                         encrypted_pass = cipher_suite.encrypt(g_pass.encode('utf-8')).decode('utf-8')
                         temp_gc[sel_user] = {"email": g_email, "password": encrypted_pass}
