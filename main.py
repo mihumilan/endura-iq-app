@@ -269,7 +269,12 @@ TRANSLATIONS = {
         "treningów na zegarek!": "workouts to watch!",
         "Napotkano błąd przy części treningów:": "Encountered an error with some workouts:",
         "Wyrażam zgodę na przetwarzanie moich danych dotyczących zdrowia (tętno, waga, informacje o kontuzjach) w celu realizacji planu treningowego.": "I explicitly consent to the processing of my health data (heart rate, weight, injury information) for the purpose of executing the training plan.",
-        "Musisz wyrazić zgodę na przetwarzanie danych medycznych (wymóg prawny RODO).": "You must consent to the processing of medical data (GDPR legal requirement)."
+        "Musisz wyrazić zgodę na przetwarzanie danych medycznych (wymóg prawny RODO).": "You must consent to the processing of medical data (GDPR legal requirement).",
+        "Odżywianie": "Nutrition",
+        "Odżywianie i Nawodnienie w trakcie (Opcjonalne)": "Nutrition & Hydration during workout (Optional)",
+        "Płyny (ml)": "Fluids (ml)",
+        "Węglowodany (g)": "Carbs (g)",
+        "Źródło (np. żele, izo)": "Source (e.g. gels, iso)"
     }
 }
 
@@ -661,6 +666,7 @@ def get_df(zawodnik=None):
             d.setdefault('rpe', 5); d.setdefault('feeling', '🙂')
             d.setdefault('kroki', []); d.setdefault('peak_powers', {}); d.setdefault('best_times', {})
             d.setdefault('komentarze_treningu', [])
+            d.setdefault('carbs', 0); d.setdefault('fluids', 0); d.setdefault('carbs_source', '')
             clean.append(d)
     df = pd.DataFrame(clean)
     if df.empty: return df
@@ -1002,7 +1008,10 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
             "laps": parsed.get('laps', []),
             "peak_powers": parsed.get('peak_powers', {}),
             "best_times": parsed.get('best_times', {}),
-            "komentarze_treningu": []
+            "komentarze_treningu": [],
+            "carbs": 0,
+            "fluids": 0,
+            "carbs_source": ""
         }
         
         unexecuted_matches = [w for w in st.session_state.session_treningi 
@@ -1352,7 +1361,19 @@ def render_workout_expander(row, idx, ja, is_coach=False):
 
             st.markdown(f"### 📋 {tr('Ocena Treningu (RPE i Samopoczucie)')}")
             col_rpe1, col_rpe2 = st.columns([3, 1])
+            
+            # WYŚWIETLANIE RPE I ODŻYWIANIA
             col_rpe1.markdown(f"**RPE:** {t_dict.get('rpe', 5)}/10 | **Samopoczucie:** {t_dict.get('feeling', '🙂')}")
+            
+            carbs = t_dict.get('carbs', 0)
+            fluids = t_dict.get('fluids', 0)
+            carbs_source = t_dict.get('carbs_source', '')
+            if carbs > 0 or fluids > 0:
+                nutri_str = f"**{tr('Odżywianie')}:** 🧃 {fluids} ml | ⚡ {carbs} g"
+                if carbs_source:
+                    nutri_str += f" *({carbs_source})*"
+                col_rpe1.markdown(nutri_str)
+                
             if t_dict.get('komentarz'):
                 col_rpe1.markdown(f"*{t_dict.get('komentarz')}*")
                 
@@ -1364,7 +1385,15 @@ def render_workout_expander(row, idx, ja, is_coach=False):
                     with st.form(key=f"form_rating_{idx}_{t_dict['data']}"):
                         n_rpe = st.slider(tr("RPE (Odczuwany wysiłek)"), 1, 10, int(t_dict.get('rpe', 5)))
                         n_feel = st.select_slider(tr("Samopoczucie"), ["😫","😕","😐","🙂","🤩"], value=t_dict.get('feeling', '🙂'))
+                        
+                        st.markdown(f"**{tr('Odżywianie i Nawodnienie w trakcie (Opcjonalne)')}**")
+                        c_nutri1, c_nutri2, c_nutri3 = st.columns(3)
+                        n_fluids = c_nutri1.number_input(tr("Płyny (ml)"), 0, 10000, int(t_dict.get('fluids', 0)), step=100)
+                        n_carbs = c_nutri2.number_input(tr("Węglowodany (g)"), 0, 1000, int(t_dict.get('carbs', 0)), step=10)
+                        n_carbs_src = c_nutri3.text_input(tr("Źródło (np. żele, izo)"), value=t_dict.get('carbs_source', ''))
+                        
                         n_kom = st.text_area(tr("Notatka dla trenera"), value=t_dict.get('komentarz', ''))
+                        
                         if st.form_submit_button(tr("Zapisz")):
                             temp_db = list(db["treningi"])
                             for w in temp_db:
@@ -1372,6 +1401,9 @@ def render_workout_expander(row, idx, ja, is_coach=False):
                                     w['rpe'] = n_rpe
                                     w['feeling'] = n_feel
                                     w['komentarz'] = n_kom
+                                    w['carbs'] = n_carbs
+                                    w['fluids'] = n_fluids
+                                    w['carbs_source'] = n_carbs_src
                             db["treningi"] = temp_db
                             st.session_state.session_treningi = temp_db
                             st.session_state[f"edit_rating_{idx}_{t_dict['data']}"] = False
@@ -1760,7 +1792,7 @@ if menu == tr("Dodaj aktywność"):
                 f_comm = st.text_area(tr("Notatka dla Trenera"))
 
                 if st.form_submit_button(tr("ZAPISZ TRENING")):
-                    new_entry = {"zawodnik": ja, "dyscyplina": f_sport, "data": str(f_date), "tytul": f"{tr(f_sport)}: {f_dist}km", "czas": f_time, "dystans": f_dist, "tss": f_tss, "avg_power": curr.get('avg_power',0), "wykonany": True, "komentarz": f_comm, "rpe": f_rpe, "feeling": f_feel, "streams": curr.get('streams'), "laps": curr.get('laps'), "peak_powers": curr.get('peak_powers', {}), "best_times": curr.get('best_times', {}), "komentarze_treningu": []}
+                    new_entry = {"zawodnik": ja, "dyscyplina": f_sport, "data": str(f_date), "tytul": f"{tr(f_sport)}: {f_dist}km", "czas": f_time, "dystans": f_dist, "tss": f_tss, "avg_power": curr.get('avg_power',0), "wykonany": True, "komentarz": f_comm, "rpe": f_rpe, "feeling": f_feel, "streams": curr.get('streams'), "laps": curr.get('laps'), "peak_powers": curr.get('peak_powers', {}), "best_times": curr.get('best_times', {}), "komentarze_treningu": [], "carbs": 0, "fluids": 0, "carbs_source": ""}
                     if pair_choice != tr("Brak (dodaj jako nowy)"):
                         old_w = unexecuted_opts[pair_choice]
                         st.session_state.session_treningi = [w for w in st.session_state.session_treningi if w is not old_w]
@@ -1974,6 +2006,15 @@ elif menu == tr("Kalendarz"):
                         if t_dict.get('wykonany'):
                             if st.session_state.role == "coach":
                                 st.markdown(f"**RPE:** {t_dict.get('rpe', 5)}/10 | **Samopoczucie:** {t_dict.get('feeling', '🙂')}")
+                                
+                                carbs = t_dict.get('carbs', 0)
+                                fluids = t_dict.get('fluids', 0)
+                                carbs_source = t_dict.get('carbs_source', '')
+                                if carbs > 0 or fluids > 0:
+                                    nutri_str = f"**{tr('Odżywianie')}:** 🧃 {fluids} ml | ⚡ {carbs} g"
+                                    if carbs_source: nutri_str += f" *({carbs_source})*"
+                                    st.markdown(nutri_str)
+                                    
                                 if t_dict.get('komentarz'):
                                     st.markdown(f"*{t_dict.get('komentarz')}*")
                             render_analysis_dashboard(t_dict, get_user_zones(target, t_dict['dyscyplina']), unique_key="cal")
@@ -2154,12 +2195,14 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
             creds = db["garmin_creds"].get(sel_user, {})
             with st.form("garmin_form"):
                 g_email = st.text_input(tr("E-mail Garmin"), value=creds.get("email", ""))
+                # Wyświetl zaszyfrowane hasło jako ukryte jeśli istnieje, ale nie ujawniaj samego hash'a.
                 has_pass_saved = True if creds.get("password") else False
                 pass_ph = "********" if has_pass_saved else ""
                 
                 g_pass = st.text_input(tr("Hasło Garmin"), value="", placeholder=pass_ph, type="password")
                 if st.form_submit_button(tr("Zapisz połączenie z chmurą")):
                     temp_gc = db["garmin_creds"]
+                    # Szyfrowanie nowego hasła jeśli zostało podane
                     if g_pass:
                         encrypted_pass = cipher_suite.encrypt(g_pass.encode('utf-8')).decode('utf-8')
                         temp_gc[sel_user] = {"email": g_email, "password": encrypted_pass}
