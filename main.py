@@ -13,45 +13,70 @@ import time
 import unicodedata
 import io
 import zipfile
+import os
 from streamlit_calendar import calendar
+
+# Ustawienia strony MUSZĄ być jako pierwsza komenda
+st.set_page_config(page_title="Endura IQ", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 
 # --- KRYPTOGRAFIA (BEZPIECZEŃSTWO RODO) ---
 import bcrypt
 from cryptography.fernet import Fernet
 
-# Bezpieczne ładowanie klucza z sejfu Streamlit (Secrets)
-FERNET_KEY = st.secrets["FERNET_KEY"].encode('utf-8')
-cipher_suite = Fernet(FERNET_KEY)
+# INTELIGENTNE POBIERANIE KLUCZY 
+def get_secret(key):
+    try:
+        return st.secrets[key]
+    except Exception:
+        return os.environ.get(key, "")
 
-st.set_page_config(page_title="Endura IQ", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
+FERNET_KEY_STR = get_secret("FERNET_KEY")
+MONGO_URI_STR = get_secret("MONGO_URI")
+
+if not FERNET_KEY_STR or not MONGO_URI_STR:
+    st.error("🔒 BŁĄD BEZPIECZEŃSTWA: Nie znaleziono ukrytych haseł do bazy danych. Sprawdź plik secrets.toml lub zmienne środowiskowe.")
+    st.stop()
+
+FERNET_KEY = FERNET_KEY_STR.encode('utf-8')
+cipher_suite = Fernet(FERNET_KEY)
 
 # --- MODUŁ BAZY DANYCH MONGODB (CLOUD) ---
 import pymongo
 
 @st.cache_resource
 def get_database_client():
-    # Bezpieczne ładowanie hasła z sejfu Streamlit
-    uri = st.secrets["MONGO_URI"]
-    return pymongo.MongoClient(uri, tls=True, tlsAllowInvalidCertificates=True)
+    return pymongo.MongoClient(MONGO_URI_STR, tls=True, tlsAllowInvalidCertificates=True)
 
 class MongoDBWrapper:
     def __init__(self, client, db_name="tricoach_pro"):
         self.collection = client[db_name]["app_data"]
+        self.cache = {} # IN-MEMORY CACHE (Eliminuje setki opóźnień sieciowych na kliknięcie!)
         
     def __getitem__(self, key):
+        if key in self.cache: return self.cache[key]
         doc = self.collection.find_one({"_id": key})
-        if doc: return doc.get("value")
+        if doc: 
+            val = doc.get("value")
+            self.cache[key] = val
+            return val
         raise KeyError(key)
         
     def __setitem__(self, key, value):
+        self.cache[key] = value
         self.collection.update_one({"_id": key}, {"$set": {"value": value}}, upsert=True)
         
     def get(self, key, default=None):
+        if key in self.cache: return self.cache[key]
         doc = self.collection.find_one({"_id": key})
-        if doc: return doc.get("value", default)
+        if doc: 
+            val = doc.get("value", default)
+            self.cache[key] = val
+            return val
+        self.cache[key] = default
         return default
         
     def __contains__(self, key):
+        if key in self.cache: return True
         return self.collection.count_documents({"_id": key}, limit=1) > 0
 
 # Inicjalizacja profesjonalnej bazy w chmurze
@@ -394,10 +419,11 @@ if isinstance(db["zawodnicy_info"], list): db["zawodnicy_info"] = {}
 
 # --- AUTO-HEALER BAZY DANYCH (KONSOLIDACJA TRENINGÓW) ---
 if "session_treningi" not in st.session_state: 
-    st.session_state.session_treningi = list(db["treningi"])
+    st.session_state.session_treningi = list(db.get("treningi", []))
 
 def consolidate_workouts():
-    db_treningi = list(db.get("treningi", []))
+    # ZMIANA: Pracujemy na danych w sesji RAM (Omijamy problem pobierania gigabajtów z chmury)
+    db_treningi = list(st.session_state.session_treningi)
     unexecuted = []
     executed = []
     
@@ -584,8 +610,7 @@ def generuj_domyslne_strefy(ftp_val, lthr, is_pace=False):
     return pd.DataFrame(p_zones), pd.DataFrame(h_zones)
 
 def get_user_zones(zawodnik, dyscyplina="Rower"):
-    if isinstance(db["strefy"], list): db["strefy"] = {}
-    all_zones = db["strefy"].get(zawodnik, {})
+    all_zones = db.get("strefy", {}).get(zawodnik, {})
     
     if "ftp" in all_zones and "Rower" not in all_zones:
         old_ftp = all_zones.get("ftp", 250)
@@ -601,7 +626,7 @@ def get_user_zones(zawodnik, dyscyplina="Rower"):
             "Siłownia": {"ftp": old_ftp, "lthr": old_lthr, "zones_pwr": old_zp.to_dict('records'), "zones_hr": old_zh.to_dict('records')},
             "Inne": {"ftp": old_ftp, "lthr": old_lthr, "zones_pwr": old_zp.to_dict('records'), "zones_hr": old_zh.to_dict('records')}
         }
-        temp_db = db["strefy"]
+        temp_db = db.get("strefy", {})
         temp_db[zawodnik] = migrated_zones
         db["strefy"] = temp_db
         all_zones = migrated_zones
@@ -613,7 +638,7 @@ def get_user_zones(zawodnik, dyscyplina="Rower"):
         def_ftp = "4:30" if dyscyplina == "Bieganie" else ("1:45" if dyscyplina == "Pływanie" else 250)
         zp, zh = generuj_domyslne_strefy(def_ftp, 170, is_pace=is_pace)
         disc_zones = {"ftp": def_ftp, "lthr": 170, "zones_pwr": zp.to_dict('records'), "zones_hr": zh.to_dict('records')}
-        temp_db = db["strefy"]
+        temp_db = db.get("strefy", {})
         if zawodnik not in temp_db: temp_db[zawodnik] = {}
         temp_db[zawodnik][dyscyplina] = disc_zones
         db["strefy"] = temp_db
@@ -623,22 +648,22 @@ def get_user_zones(zawodnik, dyscyplina="Rower"):
 def update_athlete_records(zawodnik, workout_data):
     if not workout_data.get('wykonany'): return
     if workout_data.get('peak_powers'):
-        p_prof = next((x for x in db["power_profile"] if x['zawodnik'] == zawodnik), {"zawodnik": zawodnik})
+        p_prof = next((x for x in db.get("power_profile", []) if x['zawodnik'] == zawodnik), {"zawodnik": zawodnik})
         upd = False
         for k, v in workout_data['peak_powers'].items():
             if v > p_prof.get(k, 0): p_prof[k] = v; upd = True
-        if upd: db["power_profile"] = [x for x in db["power_profile"] if x['zawodnik'] != zawodnik] + [p_prof]
+        if upd: db["power_profile"] = [x for x in db.get("power_profile", []) if x['zawodnik'] != zawodnik] + [p_prof]
     if workout_data.get('best_times'):
-        r_prof = next((x for x in db["run_records"] if x['zawodnik'] == zawodnik), {"zawodnik": zawodnik})
+        r_prof = next((x for x in db.get("run_records", []) if x['zawodnik'] == zawodnik), {"zawodnik": zawodnik})
         upd = False
         for k, v in workout_data['best_times'].items():
             if r_prof.get(k, 0) == 0 or v < r_prof[k]: r_prof[k] = v; upd = True
-        if upd: db["run_records"] = [x for x in db["run_records"] if x['zawodnik'] != zawodnik] + [r_prof]
+        if upd: db["run_records"] = [x for x in db.get("run_records", []) if x['zawodnik'] != zawodnik] + [r_prof]
 
 def save_data(new_entry):
     update_athlete_records(new_entry['zawodnik'], new_entry)
     st.session_state.session_treningi.append(new_entry)
-    db["treningi"] = list(db["treningi"]) + [new_entry]
+    db["treningi"] = list(db.get("treningi", [])) + [new_entry]
 
 def add_comment_to_workout(zawodnik, data_str, tytul, dyscyplina, autor, tresc):
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -647,7 +672,7 @@ def add_comment_to_workout(zawodnik, data_str, tytul, dyscyplina, autor, tresc):
         if w.get('zawodnik') == zawodnik and str(w.get('data')) == str(data_str) and w.get('tytul') == tytul and w.get('dyscyplina') == dyscyplina:
             if 'komentarze_treningu' not in w: w['komentarze_treningu'] = []
             w['komentarze_treningu'].append(new_comment)
-    temp_db = list(db["treningi"])
+    temp_db = list(db.get("treningi", []))
     for w in temp_db:
         if w.get('zawodnik') == zawodnik and str(w.get('data')) == str(data_str) and w.get('tytul') == tytul and w.get('dyscyplina') == dyscyplina:
             if 'komentarze_treningu' not in w: w['komentarze_treningu'] = []
@@ -712,7 +737,7 @@ def send_workout_to_garmin_connect(email, password, workout_data):
     sport_id, sport_key = (2, "cycling") if sport_str == "Rower" else ((4, "swimming") if sport_str == "Pływanie" else (1, "running"))
     
     zawodnik = workout_data.get('zawodnik')
-    user_zones = db["strefy"].get(zawodnik, {}).get(sport_str, {})
+    user_zones = db.get("strefy", {}).get(zawodnik, {}).get(sport_str, {})
     
     raw_ftp = user_zones.get('ftp', 250)
     try: ftp = float(raw_ftp)
@@ -931,7 +956,7 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
     added_count = 0
     
     existing_ids = [str(w.get("garmin_id")) for w in st.session_state.session_treningi if w.get("zawodnik") == zawodnik and w.get("garmin_id")]
-    athlete_zones = db["strefy"].get(zawodnik, {})
+    athlete_zones = db.get("strefy", {}).get(zawodnik, {})
     
     for act in activities:
         a_id = str(act.get('activityId'))
@@ -1171,7 +1196,7 @@ def render_planned_workout_view(t, user_ftp=250, unique_key=""):
         if st.button("🚀 Wyślij prosto do Garmin Connect (WiFi / Bluetooth)", key=f"gc_{t['tytul']}_{t['data']}_{unique_key}"):
             with st.spinner(f"{tr('Łączenie z Garmin Connect i pobieranie')} 1 {tr('aktywności... (to potrwa kilkanaście sekund)')}"):
                 zawodnik = t.get('zawodnik')
-                g_creds = db["garmin_creds"].get(zawodnik, {})
+                g_creds = db.get("garmin_creds", {}).get(zawodnik, {})
                 if not g_creds.get("email") or not g_creds.get("password"):
                     st.error(tr("Brak danych logowania do Garmin Connect. Uzupełnij je najpierw w zakładce 'Dane Zawodnika' -> 'Integracje 🔗'."))
                 else:
@@ -1370,8 +1395,7 @@ def render_workout_expander(row, idx, ja, is_coach=False):
             carbs_source = t_dict.get('carbs_source', '')
             if carbs > 0 or fluids > 0:
                 nutri_str = f"**{tr('Odżywianie')}:** 🧃 {fluids} ml | ⚡ {carbs} g"
-                if carbs_source:
-                    nutri_str += f" *({carbs_source})*"
+                if carbs_source: nutri_str += f" *({carbs_source})*"
                 col_rpe1.markdown(nutri_str)
                 
             if t_dict.get('komentarz'):
@@ -1395,7 +1419,7 @@ def render_workout_expander(row, idx, ja, is_coach=False):
                         n_kom = st.text_area(tr("Notatka dla trenera"), value=t_dict.get('komentarz', ''))
                         
                         if st.form_submit_button(tr("Zapisz")):
-                            temp_db = list(db["treningi"])
+                            temp_db = list(db.get("treningi", []))
                             for w in temp_db:
                                 if w.get('zawodnik') == t_dict['zawodnik'] and str(w.get('data')) == str(t_dict['data']) and w.get('tytul') == t_dict['tytul'] and w.get('dyscyplina') == t_dict['dyscyplina']:
                                     w['rpe'] = n_rpe
@@ -1535,7 +1559,7 @@ def render_onboarding_view(zawodnik):
                 "data_wypelnienia": str(date.today())
             }
             
-            temp_info = db["zawodnicy_info"]
+            temp_info = db.get("zawodnicy_info", {})
             temp_info[zawodnik] = profil
             db["zawodnicy_info"] = temp_info
             
@@ -1613,7 +1637,7 @@ if not st.session_state.logged_in:
 ja = st.session_state.username
 
 if st.session_state.role == "athlete":
-    athlete_info = db["zawodnicy_info"].get(ja, {})
+    athlete_info = db.get("zawodnicy_info", {}).get(ja, {})
     if not athlete_info.get("onboarded", False):
         render_onboarding_view(ja)
         st.stop()
@@ -1644,7 +1668,7 @@ if menu == tr("Dodaj aktywność"):
         st.session_state.auto_synced = False
         
     if not st.session_state.auto_synced:
-        g_creds = db["garmin_creds"].get(ja, {})
+        g_creds = db.get("garmin_creds", {}).get(ja, {})
         if g_creds.get("email") and g_creds.get("password"):
             with st.spinner(tr("Automatyczna synchronizacja w tle...")):
                 try:
@@ -1690,7 +1714,7 @@ if menu == tr("Dodaj aktywność"):
         with st.expander(tr("📤 Wyślij nadchodzące treningi na zegarek (7 dni)"), expanded=False):
             st.markdown(f"<span style='color:#8BA1B8; font-size:0.9em;'>{tr('Wyślij wszystkie zaplanowane treningi na najbliższe 7 dni jednym kliknięciem.')}</span>", unsafe_allow_html=True)
             if st.button(tr("🚀 Wyślij zaplanowany tydzień")):
-                g_creds = db["garmin_creds"].get(ja, {})
+                g_creds = db.get("garmin_creds", {}).get(ja, {})
                 if not g_creds.get("email") or not g_creds.get("password"):
                     st.warning(tr("Brak danych logowania do Garmin Connect. Uzupełnij je w zakładce 'Dane Zawodnika' -> 'Integracje 🔗'."))
                 else:
@@ -1735,7 +1759,7 @@ if menu == tr("Dodaj aktywność"):
                             
         with st.expander(tr("🔄 Pobierz automatycznie z Garmin Connect"), expanded=False):
             st.markdown(f"<span style='color:#8BA1B8; font-size:0.9em;'>{tr('Aplikacja sama znajdzie Twoje ostatnie treningi w chmurze Garmina, pobierze ich ukryte pliki TCX i dokona pełnej analizy.')}</span>", unsafe_allow_html=True)
-            g_creds = db["garmin_creds"].get(ja, {})
+            g_creds = db.get("garmin_creds", {}).get(ja, {})
             
             if g_creds.get("email") and g_creds.get("password"):
                 c_sync1, c_sync2 = st.columns([2, 1])
@@ -1763,7 +1787,7 @@ if menu == tr("Dodaj aktywność"):
             is_file_mode = False
             if up:
                 is_file_mode = True
-                parsed = parse_tcx_pro(up, db["strefy"].get(ja, {}))
+                parsed = parse_tcx_pro(up, db.get("strefy", {}).get(ja, {}))
                 if parsed['time'] > 0: st.session_state.form_data = parsed; st.success(f"✅ {tr('Przetworzono:')} {parsed['dist']} km")
 
             curr = st.session_state.form_data
@@ -1796,7 +1820,7 @@ if menu == tr("Dodaj aktywność"):
                     if pair_choice != tr("Brak (dodaj jako nowy)"):
                         old_w = unexecuted_opts[pair_choice]
                         st.session_state.session_treningi = [w for w in st.session_state.session_treningi if w is not old_w]
-                        db["treningi"] = [w for w in db["treningi"] if w != old_w]
+                        db["treningi"] = [w for w in db.get("treningi", []) if w != old_w]
                         new_entry['plan_czas'] = old_w.get('czas', 0)
                         new_entry['plan_tss'] = old_w.get('tss', 0)
                         new_entry['kroki'] = old_w.get('kroki', [])
@@ -1805,7 +1829,9 @@ if menu == tr("Dodaj aktywność"):
 
         st.markdown(f"### {tr('Ostatnie Aktywności')}")
         df_plan = get_df(ja)
-        for idx, row in df_plan.sort_values('data', ascending=False).iterrows():
+        # Limit do 15 ostatnich, by nie zawieszać przeglądarki!
+        recent_plan = df_plan.sort_values('data', ascending=False).head(15)
+        for idx, row in recent_plan.iterrows():
             render_workout_expander(row, idx, ja, is_coach=False)
 
 # --- 1.5 CZAT (WIADOMOŚCI) ---
@@ -1983,7 +2009,7 @@ elif menu == tr("Kalendarz"):
                         p_temp = st.selectbox(tr("Wczytaj Szablon"), opts)
                         def_title = f"{tr(p_sport)}"; def_time = 60; def_tss = 50; p_steps = []
                         if p_temp != tr("-- Własny --"):
-                            tmpl = next((x for x in db["biblioteka"] if x.get('nazwa')==p_temp), None)
+                            tmpl = next((x for x in db.get("biblioteka", []) if x.get('nazwa')==p_temp), None)
                             if tmpl: def_title = tmpl['nazwa']; def_time = sum([k['czas_total_sec'] for k in tmpl['kroki']]) // 60; p_steps = tmpl['kroki']
                         p_title = st.text_input(tr("Tytuł"), value=def_title)
                         c3, c4 = st.columns(2); p_time = c3.number_input(tr("Czas (min)"), value=def_time); p_tss = c4.number_input("Plan TSS", value=def_tss)
@@ -2029,7 +2055,7 @@ elif menu == tr("Kalendarz"):
         st.markdown(f"### 📋 {tr('Ostatnie Aktywności')}")
         df_lista = get_df(target)
         if not df_lista.empty:
-            df_lista = df_lista[df_lista['wykonany'] == True].sort_values('data', ascending=False)
+            df_lista = df_lista[df_lista['wykonany'] == True].sort_values('data', ascending=False).head(15)
             if df_lista.empty:
                 st.info(tr("Brak wykonanych aktywności."))
             else:
@@ -2090,7 +2116,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
                 for k in curve_90.keys():
                     if r.get('peak_powers', {}).get(k, 0) > curve_90[k]: curve_90[k] = r['peak_powers'][k]
 
-        p_prof = next((x for x in db["power_profile"] if x['zawodnik'] == sel_user), {"5s":0, "10s":0, "20s":0, "1m":0, "5m":0, "10m":0, "20m":0, "60m":0})
+        p_prof = next((x for x in db.get("power_profile", []) if x['zawodnik'] == sel_user), {"5s":0, "10s":0, "20s":0, "1m":0, "5m":0, "10m":0, "20m":0, "60m":0})
         fig_cp = go.Figure()
         x_vals = ["5s", "10s", "20s", "1m", "5m", "10m", "20m", "60m"]
         x_sec = [5, 10, 20, 60, 300, 600, 1200, 3600]
@@ -2118,12 +2144,12 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
                     k5, k6, k7, k8 = st.columns(4)
                     cp5m = k5.number_input("5m", value=p_prof.get("5m",0)); cp10m = k6.number_input("10m", value=p_prof.get("10m",0)); cp20m = k7.number_input("20m", value=p_prof.get("20m",0)); cp60m = k8.number_input("60m", value=p_prof.get("60m",0))
                     if st.form_submit_button(tr("Aktualizuj")):
-                        db["power_profile"] = [x for x in db["power_profile"] if x['zawodnik'] != sel_user] + [{"zawodnik": sel_user, "5s":cp5s, "10s":cp10s, "20s":cp20s, "1m":cp1m, "5m":cp5m, "10m":cp10m, "20m":cp20m, "60m":cp60m}]
+                        db["power_profile"] = [x for x in db.get("power_profile", []) if x['zawodnik'] != sel_user] + [{"zawodnik": sel_user, "5s":cp5s, "10s":cp10s, "20s":cp20s, "1m":cp1m, "5m":cp5m, "10m":cp10m, "20m":cp20m, "60m":cp60m}]
                         st.success(tr("Zapisano!")); st.rerun()
 
     with tabs[1]:
         st.markdown(f"### {tr('Najlepsze Czasy Biegowe (Personal Bests)')}")
-        r_prof = next((x for x in db["run_records"] if x['zawodnik'] == sel_user), {"400m":0, "1km":0, "5km":0, "10km":0, "Półmaraton":0, "Maraton":0})
+        r_prof = next((x for x in db.get("run_records", []) if x['zawodnik'] == sel_user), {"400m":0, "1km":0, "5km":0, "10km":0, "Półmaraton":0, "Maraton":0})
         c1, c2, c3 = st.columns(3)
         c1.markdown(f"<div class='metric-card'><div class='metric-val'>{format_duration(r_prof.get('400m', 0))}</div><div class='metric-label'>400m</div></div>", unsafe_allow_html=True)
         c2.markdown(f"<div class='metric-card'><div class='metric-val'>{format_duration(r_prof.get('1km', 0))}</div><div class='metric-label'>1km</div></div>", unsafe_allow_html=True)
@@ -2141,7 +2167,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
                     k4, k5, k6 = st.columns(3)
                     r10 = k4.number_input("10km", value=int(r_prof.get("10km",0))); r21 = k5.number_input("21.1km", value=int(r_prof.get("Półmaraton",0))); r42 = k6.number_input("42.2km", value=int(r_prof.get("Maraton",0)))
                     if st.form_submit_button(tr("Aktualizuj")):
-                        db["run_records"] = [x for x in db["run_records"] if x['zawodnik'] != sel_user] + [{"zawodnik": sel_user, "400m":r400, "1km":r1, "5km":r5, "10km":r10, "Półmaraton":r21, "Maraton":r42}]
+                        db["run_records"] = [x for x in db.get("run_records", []) if x['zawodnik'] != sel_user] + [{"zawodnik": sel_user, "400m":r400, "1km":r1, "5km":r5, "10km":r10, "Półmaraton":r21, "Maraton":r42}]
                         st.success(tr("Zapisano!")); st.rerun()
 
     with tabs[2]:
@@ -2151,7 +2177,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
                     c1, c2 = st.columns(2); p_date = c1.date_input(tr("Data")); p_type = c2.selectbox(tr("Wskaźnik"), ["VO2max", "W/kg", "LT1", "LT2", "Tkanka %"])
                     p_val = st.number_input(tr("Wartość"), step=0.1)
                     if st.form_submit_button(tr("Zapisz")): db["fizjologia"].append({"zawodnik": sel_user, "data": str(p_date), "typ": p_type, "wartosc": p_val}); st.success(tr("Dodano!"))
-        df_ph = pd.DataFrame(db["fizjologia"])
+        df_ph = pd.DataFrame(db.get("fizjologia", []))
         if not df_ph.empty:
             df_ph = df_ph[df_ph['zawodnik'] == sel_user]
             if not df_ph.empty:
@@ -2167,7 +2193,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
                     w_date = st.date_input(tr("Data ważenia"))
                     w_val = st.number_input(tr("Waga (kg)"), min_value=30.0, max_value=200.0, value=75.0, step=0.1)
                     if st.form_submit_button(tr("Zapisz Wagę")):
-                        temp_w = list(db["waga"])
+                        temp_w = list(db.get("waga", []))
                         existing = [x for x in temp_w if x['zawodnik'] == sel_user and x['data'] == str(w_date)]
                         if existing: existing[0]['waga'] = w_val
                         else: temp_w.append({"zawodnik": sel_user, "data": str(w_date), "waga": w_val})
@@ -2192,7 +2218,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
             st.info(tr("Ze względów bezpieczeństwa i prywatności, tylko zawodnik ma dostęp do swoich danych logowania Garmin Connect."))
         else:
             st.markdown(f"<span style='color:#8BA1B8;'>{tr('Podaj dane logowania, aby aplikacja Endura IQ mogła automatycznie wysyłać zaplanowane treningi prosto do Twojego kalendarza w zegarku.')}</span>", unsafe_allow_html=True)
-            creds = db["garmin_creds"].get(sel_user, {})
+            creds = db.get("garmin_creds", {}).get(sel_user, {})
             with st.form("garmin_form"):
                 g_email = st.text_input(tr("E-mail Garmin"), value=creds.get("email", ""))
                 # Wyświetl zaszyfrowane hasło jako ukryte jeśli istnieje, ale nie ujawniaj samego hash'a.
@@ -2201,7 +2227,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
                 
                 g_pass = st.text_input(tr("Hasło Garmin"), value="", placeholder=pass_ph, type="password")
                 if st.form_submit_button(tr("Zapisz połączenie z chmurą")):
-                    temp_gc = db["garmin_creds"]
+                    temp_gc = db.get("garmin_creds", {})
                     # Szyfrowanie nowego hasła jeśli zostało podane
                     if g_pass:
                         encrypted_pass = cipher_suite.encrypt(g_pass.encode('utf-8')).decode('utf-8')
@@ -2218,7 +2244,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
     with tabs[5]:
         sel_user_disp = get_display_name(sel_user)
         st.markdown(f"### {tr('Profil Startowy (Ankieta):')} {sel_user_disp}")
-        info = db["zawodnicy_info"].get(sel_user, {})
+        info = db.get("zawodnicy_info", {}).get(sel_user, {})
         
         if info and info.get("onboarded"):
             st.markdown(f"<span style='color:#00E5FF; font-weight:bold;'>{tr('Data wypełnienia:')}</span> {info.get('data_wypelnienia')}", unsafe_allow_html=True)
@@ -2365,7 +2391,7 @@ elif menu == tr("Strefy"):
         user_data["ftp"] = new_ftp
         user_data["lthr"] = new_lthr
         
-        temp_db = db["strefy"]
+        temp_db = db.get("strefy", {})
         if sel_user not in temp_db: temp_db[sel_user] = {}
         temp_db[sel_user][sel_disc] = user_data
         db["strefy"] = temp_db
@@ -2385,7 +2411,7 @@ elif menu == tr("Strefy"):
         user_data["ftp"] = new_ftp
         user_data["lthr"] = new_lthr
         
-        temp_db = db["strefy"]
+        temp_db = db.get("strefy", {})
         if sel_user not in temp_db: temp_db[sel_user] = {}
         temp_db[sel_user][sel_disc] = user_data
         db["strefy"] = temp_db
@@ -2406,13 +2432,13 @@ elif menu == tr("Kreator"):
         if load != tr("-- Własny --"):
             col_l1, col_l2, col_l3 = st.columns(3)
             if col_l1.button(tr("🔄 Zastąp")): 
-                tmpl = next((x for x in db["biblioteka"] if x['nazwa']==load), None)
+                tmpl = next((x for x in db.get("biblioteka", []) if x['nazwa']==load), None)
                 if tmpl:
                     st.session_state['pro_steps'] = list(tmpl['kroki'])
                     st.session_state['loaded_template_name'] = tmpl['nazwa']
                     st.rerun()
             if col_l2.button(tr("➕ Doklej")):
-                tmpl = next((x for x in db["biblioteka"] if x['nazwa']==load), None)
+                tmpl = next((x for x in db.get("biblioteka", []) if x['nazwa']==load), None)
                 if tmpl:
                     st.session_state['pro_steps'].extend(list(tmpl['kroki']))
                     st.rerun()
@@ -2540,11 +2566,11 @@ elif menu == tr("Plany"):
                 p_plan_name = c2.selectbox(tr("Wybierz Plan"), [p['nazwa'] for p in db.get("plany", [])])
                 p_start_date = st.date_input(tr("Data startu"), date.today())
                 if st.form_submit_button(tr("Przypisz Plan")):
-                    selected_plan = next((p for p in db["plany"] if p['nazwa'] == p_plan_name), None)
+                    selected_plan = next((p for p in db.get("plany", []) if p['nazwa'] == p_plan_name), None)
                     if selected_plan:
                         for item in selected_plan['treningi']:
                             target_date = p_start_date + timedelta(days=item['dzien'] - 1)
-                            tmpl = next((x for x in db["biblioteka"] if x['nazwa'] == item['szablon']), None)
+                            tmpl = next((x for x in db.get("biblioteka", []) if x['nazwa'] == item['szablon']), None)
                             if tmpl:
                                 t_time = sum([k.get('czas_total_sec', 0) for k in tmpl.get('kroki', [])]) // 60
                                 plan_entry = {
