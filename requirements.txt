@@ -3,9 +3,9 @@ pandas
 plotly
 fpdf
 pymongo
-dnspython
 garminconnect
 streamlit-calendar
 bcrypt
 cryptography
+dnspython
 certifi
