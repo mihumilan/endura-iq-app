@@ -1668,26 +1668,7 @@ if st.sidebar.button(tr("Wyloguj")): st.session_state.logged_in=False; st.rerun(
 
 # --- AUTO-SYNC W TLE (DLA ZAWODNIKA) ---
 if menu == tr("Dodaj aktywność"):
-    
-    if "auto_synced" not in st.session_state:
-        st.session_state.auto_synced = False
-        
-    if not st.session_state.auto_synced:
-        g_creds = db.get("garmin_creds", {}).get(ja, {})
-        if g_creds.get("email") and g_creds.get("password"):
-            with st.spinner(tr("Automatyczna synchronizacja w tle...")):
-                try:
-                    added = sync_from_garmin(ja, g_creds["email"], g_creds["password"], 5)
-                    st.session_state.auto_synced = True
-                    if added > 0:
-                        consolidate_workouts()
-                        st.toast(f"{tr('Pobrano automatycznie nowych treningów:')} {added}")
-                        time.sleep(1)
-                        st.rerun()
-                except Exception:
-                    st.session_state.auto_synced = True
-        else:
-            st.session_state.auto_synced = True
+    st.session_state.auto_synced = True # Wyłączone agresywne pobieranie z Garmin
 
     st.title(f"{tr('Cześć')} {ja_disp.split(' ')[0]}!")
     next_race = get_next_race(ja)
