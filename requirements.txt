@@ -2,7 +2,7 @@ streamlit
 pandas
 plotly
 fpdf
-pymongo
+pymongo[srv]
 garminconnect
 streamlit-calendar
 bcrypt
