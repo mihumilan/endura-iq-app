@@ -7,3 +7,4 @@ garminconnect
 streamlit-calendar
 bcrypt
 cryptography
+certifi
