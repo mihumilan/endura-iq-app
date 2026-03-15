@@ -46,9 +46,9 @@ import certifi
 
 @st.cache_resource
 def get_database_client():
-    # Wymuszamy certyfikaty SSL i ustawiamy 5 sekund na połączenie (żeby apka nie wisiała!)
     return pymongo.MongoClient(
         MONGO_URI_STR, 
+        tls=True, 
         tlsCAFile=certifi.where(),
         serverSelectionTimeoutMS=5000
     )
@@ -56,34 +56,33 @@ def get_database_client():
 class MongoDBWrapper:
     def __init__(self, client, db_name="tricoach_pro"):
         self.collection = client[db_name]["app_data"]
-        self.cache = {} # IN-MEMORY CACHE (Eliminuje setki opóźnień sieciowych na kliknięcie!)
+        self.cache = {} 
+        # BŁYSKAWICZNY START: Pobieramy całą bazę ZA JEDNYM RAZEM do RAMu!
+        try:
+            for doc in self.collection.find():
+                self.cache[doc["_id"]] = doc.get("value")
+        except Exception:
+            pass
         
     def __getitem__(self, key):
         if key in self.cache: return self.cache[key]
-        doc = self.collection.find_one({"_id": key})
-        if doc: 
-            val = doc.get("value")
-            self.cache[key] = val
-            return val
-        raise KeyError(key)
+        raise KeyError(key) # Nie pytamy bazy co chwilę, wszystko mamy w RAM
         
     def __setitem__(self, key, value):
         self.cache[key] = value
         self.collection.update_one({"_id": key}, {"$set": {"value": value}}, upsert=True)
         
     def get(self, key, default=None):
-        if key in self.cache: return self.cache[key]
-        doc = self.collection.find_one({"_id": key})
-        if doc: 
-            val = doc.get("value", default)
-            self.cache[key] = val
-            return val
-        self.cache[key] = default
-        return default
+        return self.cache.get(key, default)
         
     def __contains__(self, key):
-        if key in self.cache: return True
-        return self.collection.count_documents({"_id": key}, limit=1) > 0
+        return key in self.cache
+
+@st.cache_resource
+def get_db_wrapper():
+    return MongoDBWrapper(get_database_client())
+
+db = get_db_wrapper()
 
 # Inicjalizacja profesjonalnej bazy w chmurze
 mongo_client = get_database_client()
