@@ -42,10 +42,16 @@ cipher_suite = Fernet(FERNET_KEY)
 
 # --- MODUŁ BAZY DANYCH MONGODB (CLOUD) ---
 import pymongo
+import certifi
 
 @st.cache_resource
 def get_database_client():
-    return pymongo.MongoClient(MONGO_URI_STR, tls=True, tlsAllowInvalidCertificates=True)
+    # Wymuszamy certyfikaty SSL i ustawiamy 5 sekund na połączenie (żeby apka nie wisiała!)
+    return pymongo.MongoClient(
+        MONGO_URI_STR, 
+        tlsCAFile=certifi.where(),
+        serverSelectionTimeoutMS=5000
+    )
 
 class MongoDBWrapper:
     def __init__(self, client, db_name="tricoach_pro"):
