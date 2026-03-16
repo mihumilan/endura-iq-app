@@ -1208,8 +1208,11 @@ def render_tp_weekly_list(df):
 def render_planned_workout_view(t, user_ftp=250, unique_key=""):
     st.info(f"{tr('Zaplanowany Trening:')} {t['tytul']}")
     if t.get('komentarz'): st.markdown(f"{tr('Instrukcje Trenera:')}\n> {t['komentarz']}")
+    
     if t.get('kroki'):
-        fig = go.Figure(); ct = 0; steps_data = []
+        fig = go.Figure()
+        ct = 0
+        steps_data = []
         for idx, k in enumerate(t['kroki']):
             v_desc = f"{k.get('dystans_km', 0)} km" if k.get('is_distance') else f"{int(k.get('czas_total_sec', 0)/60)} min"
             dur = k.get('czas_total_sec', 300)/60
@@ -1227,11 +1230,17 @@ def render_planned_workout_view(t, user_ftp=250, unique_key=""):
         
         if st.toggle(tr("Zobacz Rozpiskę"), key=f"gc_tog_rozp_plan_{t.get('tytul')}_{t.get('data')}_{unique_key}"):
             st.table(pd.DataFrame(steps_data))
+    else: 
+        st.warning(tr("Tylko opis tekstowy."))
         
-        st.markdown("---")
+    st.markdown("---")
+    
+    # --- NOWA SEKCJA: SYNCHRONIZACJA I USUWANIE ---
+    col_sync, col_del = st.columns([2, 1])
+    
+    with col_sync:
         st.markdown(f"### ☁️ {tr('Synchronizacja')}")
-        
-        if st.button("🚀 Wyślij prosto do Garmin Connect (WiFi / Bluetooth)", key=f"gc_{t['tytul']}_{t['data']}_{unique_key}"):
+        if st.button("🚀 Wyślij prosto do Garmin Connect", key=f"gc_{t['tytul']}_{t['data']}_{unique_key}"):
             with st.spinner(f"{tr('Łączenie z Garmin Connect i pobieranie')} 1 {tr('aktywności... (to potrwa kilkanaście sekund)')}"):
                 zawodnik = t.get('zawodnik')
                 g_creds = db.get("garmin_creds", {}).get(zawodnik, {})
@@ -1249,9 +1258,25 @@ def render_planned_workout_view(t, user_ftp=250, unique_key=""):
                             st.error(tr("⚠️ Błąd logowania! Sprawdź czy e-mail/hasło są poprawne. Upewnij się też, że na koncie Garmin masz wyłączoną weryfikację dwuetapową (2FA)."))
                         else:
                             st.error(f"{tr('⚠️ Błąd integracji:')} {str(e)}")
-
-    else: st.warning(tr("Tylko opis tekstowy."))
-
+                            
+    with col_del:
+        st.markdown("### 🗑️ Opcje")
+        if st.button("Usuń trening", type="primary", key=f"del_btn_{t['tytul']}_{t['data']}_{unique_key}"):
+            # Funkcja sprawdzająca czy to ten konkretny trening
+            def is_match(w):
+                return (w.get('zawodnik') == t.get('zawodnik') and 
+                        str(w.get('data')) == str(t.get('data')) and 
+                        w.get('tytul') == t.get('tytul') and 
+                        w.get('dyscyplina') == t.get('dyscyplina') and 
+                        w.get('wykonany') == False)
+                        
+            # Usuwamy z RAM i Bazy Danych
+            st.session_state.session_treningi = [w for w in st.session_state.session_treningi if not is_match(w)]
+            db["treningi"] = [w for w in db.get("treningi", []) if not is_match(w)]
+            
+            st.success("Usunięto!")
+            time.sleep(1)
+            st.rerun()
 def render_analysis_dashboard(t, user_settings, unique_key=""):
     if not t.get('wykonany'): return
 
