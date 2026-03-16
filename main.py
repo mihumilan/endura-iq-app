@@ -57,32 +57,56 @@ class MongoDBWrapper:
     def __init__(self, client, db_name="tricoach_pro"):
         self.collection = client[db_name]["app_data"]
         self.cache = {} 
-        # BŁYSKAWICZNY START: Pobieramy całą bazę ZA JEDNYM RAZEM do RAMu!
-        try:
-            for doc in self.collection.find():
-                self.cache[doc["_id"]] = doc.get("value")
-        except Exception:
-            pass
         
     def __getitem__(self, key):
         if key in self.cache: return self.cache[key]
-        raise KeyError(key) # Nie pytamy bazy co chwilę, wszystko mamy w RAM
+        doc = self.collection.find_one({"_id": key})
+        if doc: 
+            val = doc.get("value")
+            self.cache[key] = val
+            return val
+        raise KeyError(key)
         
     def __setitem__(self, key, value):
         self.cache[key] = value
         self.collection.update_one({"_id": key}, {"$set": {"value": value}}, upsert=True)
         
     def get(self, key, default=None):
-        return self.cache.get(key, default)
+        if key in self.cache: return self.cache[key]
+        doc = self.collection.find_one({"_id": key})
+        if doc: 
+            val = doc.get("value", default)
+            self.cache[key] = val
+            return val
+        return default
         
     def __contains__(self, key):
-        return key in self.cache
+        if key in self.cache: return True
+        return self.collection.count_documents({"_id": key}, limit=1) > 0
 
 @st.cache_resource
 def get_db_wrapper():
     return MongoDBWrapper(get_database_client())
 
 db = get_db_wrapper()
+
+# --- AUTO-HEALER (ODCHUDZANIE BAZY DANYCH) ---
+try:
+    stare_treningi = db.get("treningi", [])
+    zmieniono = False
+    import uuid
+    for w in stare_treningi:
+        # Jeśli trening ma ciężkie mapy (streams), przenieś je do szuflady
+        if w.get("streams") and not w.get("stream_id"):
+            s_id = f"str_{uuid.uuid4().hex[:8]}"
+            db[s_id] = w["streams"]
+            w["stream_id"] = s_id
+            w["streams"] = None # Usuwamy ciężar z głównej pamięci!
+            zmieniono = True
+    if zmieniono:
+        db["treningi"] = stare_treningi
+except Exception:
+    pass
 
 # Inicjalizacja profesjonalnej bazy w chmurze
 mongo_client = get_database_client()
@@ -667,6 +691,15 @@ def update_athlete_records(zawodnik, workout_data):
 
 def save_data(new_entry):
     update_athlete_records(new_entry['zawodnik'], new_entry)
+    
+    # ODCHUDZANIE: Chowanie ciężkich map GPS i tętna do osobnej szuflady
+    if new_entry.get('streams'):
+        import uuid
+        s_id = f"str_{uuid.uuid4().hex[:8]}"
+        db[s_id] = new_entry['streams']
+        new_entry['stream_id'] = s_id
+        new_entry['streams'] = None # Czyścimy to, żeby nie zatykało RAMu!
+        
     st.session_state.session_treningi.append(new_entry)
     db["treningi"] = list(db.get("treningi", [])) + [new_entry]
 
@@ -1222,11 +1255,13 @@ def render_planned_workout_view(t, user_ftp=250, unique_key=""):
 def render_analysis_dashboard(t, user_settings, unique_key=""):
     if not t.get('wykonany'): return
 
+    # Pobieramy ciężkie dane z szuflady TYLKO GDY zawodnik otworzy wykres
     streams = t.get('streams')
-    
+    if not streams and t.get('stream_id'):
+        streams = db.get(t['stream_id'])
+        
     has_pwr = streams and streams.get('watts') and any(x is not None for x in streams.get('watts'))
     has_hr = streams and streams.get('hr') and any(x is not None for x in streams.get('hr'))
-
     if streams and any(streams.get('lat', [])):
         lat_list = [l for l in streams.get('lat', []) if l is not None]
         lon_list = [l for l in streams.get('lon', []) if l is not None]
