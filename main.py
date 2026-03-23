@@ -769,7 +769,29 @@ def send_workout_to_garmin_connect(email, password, workout_data):
         decrypted_password = password
         
     client = garminconnect.Garmin(email, decrypted_password)
-    client.login()
+    zawodnik = workout_data.get('zawodnik')
+    
+    # --- INTELIGENTNE LOGOWANIE (ANTY-BAN 429) ---
+    tokens_db = db.get("garmin_tokens", {})
+    saved_token = tokens_db.get(zawodnik)
+    
+    logged_in = False
+    if saved_token:
+        try:
+            client.garth.loads(saved_token)
+            client.get_full_name() # Szybki test czy przepustka z bazy dalej działa
+            logged_in = True
+        except Exception:
+            pass
+            
+    if not logged_in:
+        client.login() # Jeśli przepustki nie ma, logujemy się normalnie
+        try:
+            tokens_db[zawodnik] = client.garth.dumps()
+            db["garmin_tokens"] = tokens_db # Zapisujemy nową przepustkę do bazy!
+        except Exception:
+            pass
+    # ---------------------------------------------
     
     sport_str = workout_data.get('dyscyplina', 'Bieganie')
     sport_id, sport_key = (2, "cycling") if sport_str == "Rower" else ((4, "swimming") if sport_str == "Pływanie" else (1, "running"))
@@ -988,7 +1010,28 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
         decrypted_password = password
         
     client = garminconnect.Garmin(email, decrypted_password)
-    client.login()
+    
+    # --- INTELIGENTNE LOGOWANIE (ANTY-BAN 429) ---
+    tokens_db = db.get("garmin_tokens", {})
+    saved_token = tokens_db.get(zawodnik)
+    
+    logged_in = False
+    if saved_token:
+        try:
+            client.garth.loads(saved_token)
+            client.get_full_name()
+            logged_in = True
+        except Exception:
+            pass
+            
+    if not logged_in:
+        client.login()
+        try:
+            tokens_db[zawodnik] = client.garth.dumps()
+            db["garmin_tokens"] = tokens_db
+        except Exception:
+            pass
+    # ---------------------------------------------
     
     activities = client.get_activities(0, limit)
     added_count = 0
