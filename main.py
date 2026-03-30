@@ -2429,16 +2429,13 @@ with tabs[4]:
             
             if st.button(tr("Trwale usuń moje konto"), type="primary"):
                 if del_confirm == tr("USUŃ"):
-                    # 1. Usuwanie z listy zawodników
                     db["zawodnicy_list"] = [z for z in db.get("zawodnicy_list", []) if z != ja]
                     
-                    # 2. Usuwanie konta (loginu)
                     users_temp = db.get("users_db", {})
                     if ja in users_temp: 
                         del users_temp[ja]
                         db["users_db"] = users_temp
                         
-                    # 3. Usuwanie powiązanych danych z list
                     db["treningi"] = [w for w in db.get("treningi", []) if w.get("zawodnik") != ja]
                     db["wyscigi"] = [w for w in db.get("wyscigi", []) if w.get("zawodnik") != ja]
                     db["fizjologia"] = [w for w in db.get("fizjologia", []) if w.get("zawodnik") != ja]
@@ -2448,7 +2445,6 @@ with tabs[4]:
                     db["day_notes"] = [w for w in db.get("day_notes", []) if w.get("zawodnik") != ja]
                     db["chat"] = [m for m in db.get("chat", []) if m.get("od") != ja and m.get("do") != ja]
                     
-                    # 4. Usuwanie danych ze słowników
                     for dict_key in ["strefy", "garmin_creds", "zawodnicy_info"]:
                         temp_d = db.get(dict_key, {})
                         if ja in temp_d:
