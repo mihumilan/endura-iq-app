@@ -2305,54 +2305,54 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
         else: st.info(tr("Brak wpisów wagi w bazie."))
         
 with tabs[4]:
+        
+        # --- NOWY PRZYCISK STRAVA ---
+        st.markdown("### 🔗 Synchronizacja Strava (Pobieranie treningów)")
+        st.write("Połącz konto, aby automatycznie pobierać tętno, moc i tempo ze wszystkich urządzeń (Garmin, Coros, Polar).")
+        
+        if STRAVA_CLIENT_ID:
+            strava_auth_url = (
+                f"https://www.strava.com/oauth/authorize?"
+                f"client_id={STRAVA_CLIENT_ID}&"
+                f"response_type=code&"
+                f"redirect_uri={REDIRECT_URI}&"
+                f"approval_prompt=force&"
+                f"scope=activity:read_all"
+            )
+            st.markdown(f'<a href="{strava_auth_url}" target="_self"><img src="https://tech.pelotoncycle.com/wp-content/uploads/2016/06/ConnectWithStrava@2x.png" width="250"></a>', unsafe_allow_html=True)
+        else:
+            st.error("Błąd konfiguracji: Brak klucza Strava w zmiennych środowiskowych.")
             
-            # --- NOWY PRZYCISK STRAVA ---
-            st.markdown("### 🔗 Synchronizacja Strava (Pobieranie treningów)")
-            st.write("Połącz konto, aby automatycznie pobierać tętno, moc i tempo ze wszystkich urządzeń (Garmin, Coros, Polar).")
-            
-            if STRAVA_CLIENT_ID:
-                strava_auth_url = (
-                    f"https://www.strava.com/oauth/authorize?"
-                    f"client_id={STRAVA_CLIENT_ID}&"
-                    f"response_type=code&"
-                    f"redirect_uri={REDIRECT_URI}&"
-                    f"approval_prompt=force&"
-                    f"scope=activity:read_all"
-                )
-                st.markdown(f'<a href="{strava_auth_url}" target="_self"><img src="https://tech.pelotoncycle.com/wp-content/uploads/2016/06/ConnectWithStrava@2x.png" width="250"></a>', unsafe_allow_html=True)
-            else:
-                st.error("Błąd konfiguracji: Brak klucza Strava w zmiennych środowiskowych.")
+        st.markdown("---")
+        
+        # --- STARY KOD GARMINA ---
+        st.markdown(f"### {tr('🔵 Autoryzacja Garmin Connect')}")
+        if st.session_state.role == "coach":
+            st.info(tr("Ze względów bezpieczeństwa i prywatności, tylko zawodnik ma dostęp do swoich danych logowania Garmin Connect."))
+        else:
+            st.markdown(f"<span style='color:#8BA1B8;'>{tr('Podaj dane logowania, aby aplikacja Endura IQ mogła automatycznie wysyłać zaplanowane treningi prosto do Twojego kalendarza w zegarku.')}</span>", unsafe_allow_html=True)
+            creds = db.get("garmin_creds", {}).get(sel_user, {})
+            with st.form("garmin_form"):
+                g_email = st.text_input(tr("E-mail Garmin"), value=creds.get("email", ""))
+                has_pass_saved = True if creds.get("password") else False
+                pass_ph = "********" if has_pass_saved else ""
                 
-            st.markdown("---")
-            
-            # --- STARY KOD GARMINA ---
-            st.markdown(f"### {tr('🔵 Autoryzacja Garmin Connect')}")
-            if st.session_state.role == "coach":
-                st.info(tr("Ze względów bezpieczeństwa i prywatności, tylko zawodnik ma dostęp do swoich danych logowania Garmin Connect."))
-            else:
-                st.markdown(f"<span style='color:#8BA1B8;'>{tr('Podaj dane logowania, aby aplikacja Endura IQ mogła automatycznie wysyłać zaplanowane treningi prosto do Twojego kalendarza w zegarku.')}</span>", unsafe_allow_html=True)
-                creds = db.get("garmin_creds", {}).get(sel_user, {})
-                with st.form("garmin_form"):
-                    g_email = st.text_input(tr("E-mail Garmin"), value=creds.get("email", ""))
-                    has_pass_saved = True if creds.get("password") else False
-                    pass_ph = "********" if has_pass_saved else ""
-                    
-                    g_pass = st.text_input(tr("Hasło Garmin"), value="", placeholder=pass_ph, type="password")
-                    if st.form_submit_button(tr("Zapisz połączenie z chmurą")):
-                        temp_gc = db.get("garmin_creds", {})
-                        if g_pass:
-                            encrypted_pass = cipher_suite.encrypt(g_pass.encode('utf-8')).decode('utf-8')
-                            temp_gc[sel_user] = {"email": g_email, "password": encrypted_pass}
-                            db["garmin_creds"] = temp_gc
-                            st.success(tr("Zapisano dane. Od teraz możesz wysyłać treningi prosto z kalendarza!"))
-                        elif has_pass_saved and not g_pass:
-                            temp_gc[sel_user]["email"] = g_email
-                            db["garmin_creds"] = temp_gc
-                            st.success(tr("Zapisano dane (hasło pozostało bez zmian)."))
-                        else:
-                            st.error("Podaj hasło.")
+                g_pass = st.text_input(tr("Hasło Garmin"), value="", placeholder=pass_ph, type="password")
+                if st.form_submit_button(tr("Zapisz połączenie z chmurą")):
+                    temp_gc = db.get("garmin_creds", {})
+                    if g_pass:
+                        encrypted_pass = cipher_suite.encrypt(g_pass.encode('utf-8')).decode('utf-8')
+                        temp_gc[sel_user] = {"email": g_email, "password": encrypted_pass}
+                        db["garmin_creds"] = temp_gc
+                        st.success(tr("Zapisano dane. Od teraz możesz wysyłać treningi prosto z kalendarza!"))
+                    elif has_pass_saved and not g_pass:
+                        temp_gc[sel_user]["email"] = g_email
+                        db["garmin_creds"] = temp_gc
+                        st.success(tr("Zapisano dane (hasło pozostało bez zmian)."))
+                    else:
+                        st.error("Podaj hasło.")
 
-        with tabs[5]:
+    with tabs[5]:
         sel_user_disp = get_display_name(sel_user)
         st.markdown(f"### {tr('Profil Startowy (Ankieta):')} {sel_user_disp}")
         info = db.get("zawodnicy_info", {}).get(sel_user, {})
