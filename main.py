@@ -33,8 +33,8 @@ def get_secret(key):
 FERNET_KEY_STR = get_secret("FERNET_KEY")
 MONGO_URI_STR = get_secret("MONGO_URI")
 # --- KONFIGURACJA STRAVA API ---
-STRAVA_CLIENT_ID = os.getenv("STRAVA_CLIENT_ID")
-STRAVA_CLIENT_SECRET = os.getenv("STRAVA_CLIENT_SECRET")
+STRAVA_CLIENT_ID = get_secret("STRAVA_CLIENT_ID")
+STRAVA_CLIENT_SECRET = get_secret("STRAVA_CLIENT_SECRET")
 REDIRECT_URI = "https://endura-iq.onrender.com/"
 if not FERNET_KEY_STR or not MONGO_URI_STR:
     st.error("🔒 BŁĄD BEZPIECZEŃSTWA: Nie znaleziono ukrytych haseł do bazy danych. Sprawdź plik secrets.toml lub zmienne środowiskowe.")
