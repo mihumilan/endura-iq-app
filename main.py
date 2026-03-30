@@ -2351,8 +2351,8 @@ with tabs[4]:
                             st.success(tr("Zapisano dane (hasło pozostało bez zmian)."))
                         else:
                             st.error("Podaj hasło.")
-                
-    with tabs[5]:
+
+        with tabs[5]:
         sel_user_disp = get_display_name(sel_user)
         st.markdown(f"### {tr('Profil Startowy (Ankieta):')} {sel_user_disp}")
         info = db.get("zawodnicy_info", {}).get(sel_user, {})
