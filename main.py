@@ -2304,8 +2304,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
             else: st.info(tr("Brak wpisów wagi dla tego zawodnika."))
         else: st.info(tr("Brak wpisów wagi w bazie."))
         
-with tabs[4]:
-        # --- NOWY PRZYCISK STRAVA ---
+    with tabs[4]:
         st.markdown("### 🔗 Synchronizacja Strava (Pobieranie treningów)")
         st.write("Połącz konto, aby automatycznie pobierać tętno, moc i tempo ze wszystkich urządzeń (Garmin, Coros, Polar).")
         
@@ -2324,7 +2323,6 @@ with tabs[4]:
             
         st.markdown("---")
         
-        # --- STARY KOD GARMINA ---
         st.markdown(f"### {tr('🔵 Autoryzacja Garmin Connect')}")
         if st.session_state.role == "coach":
             st.info(tr("Ze względów bezpieczeństwa i prywatności, tylko zawodnik ma dostęp do swoich danych logowania Garmin Connect."))
@@ -2419,7 +2417,6 @@ with tabs[4]:
         else:
             st.info(tr("Ten zawodnik nie wypełnił jeszcze ankiety startowej."))
 
-    # --- ZAKŁADKA USUWANIA KONTA (TYLKO DLA ZAWODNIKA) ---
     if st.session_state.role == "athlete":
         with tabs[6]:
             st.markdown(f"### 🛑 {tr('Usuwanie Konta')}")
