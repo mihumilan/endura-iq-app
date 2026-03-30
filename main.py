@@ -32,7 +32,10 @@ def get_secret(key):
 
 FERNET_KEY_STR = get_secret("FERNET_KEY")
 MONGO_URI_STR = get_secret("MONGO_URI")
-
+# --- KONFIGURACJA STRAVA API ---
+STRAVA_CLIENT_ID = os.getenv("STRAVA_CLIENT_ID")
+STRAVA_CLIENT_SECRET = os.getenv("STRAVA_CLIENT_SECRET")
+REDIRECT_URI = "https://endura-iq.onrender.com/"
 if not FERNET_KEY_STR or not MONGO_URI_STR:
     st.error("🔒 BŁĄD BEZPIECZEŃSTWA: Nie znaleziono ukrytych haseł do bazy danych. Sprawdź plik secrets.toml lub zmienne środowiskowe.")
     st.stop()
@@ -2302,6 +2305,26 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
         else: st.info(tr("Brak wpisów wagi w bazie."))
         
     with tabs[4]:
+
+         # --- NOWY PRZYCISK STRAVA ---
+            st.markdown(f"### 🔗 Synchronizacja Strava (Pobieranie treningów)")
+            st.write("Połącz konto, aby automatycznie pobierać tętno, moc i tempo ze wszystkich urządzeń (Garmin, Coros, Polar).")
+            
+            if STRAVA_CLIENT_ID:
+                strava_auth_url = (
+                    f"https://www.strava.com/oauth/authorize?"
+                    f"client_id={STRAVA_CLIENT_ID}&"
+                    f"response_type=code&"
+                    f"redirect_uri={REDIRECT_URI}&"
+                    f"approval_prompt=force&"
+                    f"scope=activity:read_all"
+                )
+                st.markdown(f'<a href="{strava_auth_url}" target="_self"><img src="https://tech.pelotoncycle.com/wp-content/uploads/2016/06/ConnectWithStrava@2x.png" width="250"></a>', unsafe_allow_html=True)
+            else:
+                st.error("Błąd konfiguracji: Brak klucza Strava w zmiennych środowiskowych.")
+                
+            st.markdown("---") # Kreska oddzielająca Stravę od Garmina
+            # ----------------------------
         st.markdown(f"### {tr('🔵 Autoryzacja Garmin Connect')}")
         if st.session_state.role == "coach":
             st.info(tr("Ze względów bezpieczeństwa i prywatności, tylko zawodnik ma dostęp do swoich danych logowania Garmin Connect."))
