@@ -2305,7 +2305,6 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
         else: st.info(tr("Brak wpisów wagi w bazie."))
         
 with tabs[4]:
-        
         # --- NOWY PRZYCISK STRAVA ---
         st.markdown("### 🔗 Synchronizacja Strava (Pobieranie treningów)")
         st.write("Połącz konto, aby automatycznie pobierać tętno, moc i tempo ze wszystkich urządzeń (Garmin, Coros, Polar).")
