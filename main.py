@@ -1989,7 +1989,7 @@ if menu == tr("Dodaj aktywność"):
             else:
                 st.warning(tr("⚠️ Zanim pobierzesz treningi, musisz podać dane logowania do Garmina w zakładce 'Dane zawodnika' -> 'Integracje 🔗'"))
 
-        with st.expander("🟧 Pobierz automatycznie ze Strava", expanded=False):
+                with st.expander("🟧 Pobierz automatycznie ze Strava", expanded=False):
             st.markdown("<span style='color:#8BA1B8; font-size:0.9em;'>Pobierz historię i nowe treningi bezpośrednio ze Stravy. (Tętno, moc, mapy GPS)</span>", unsafe_allow_html=True)
             s_tokens = db.get("strava_tokens", {}).get(ja)
             
