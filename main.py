@@ -2317,7 +2317,7 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
                 f"approval_prompt=force&"
                 f"scope=activity:read_all"
             )
-          st.markdown(f'<a href="{strava_auth_url}" target="_self" style="display: inline-block; background-color: #FC4C02; color: #FFFFFF !important; padding: 12px 24px; text-decoration: none; font-weight: 800; border-radius: 8px; font-family: sans-serif; font-size: 16px; box-shadow: 0 4px 12px rgba(252, 76, 2, 0.3); transition: transform 0.2s;">🔗 Połącz z kontem Strava</a>', unsafe_allow_html=True)
+            st.markdown(f'<a href="{strava_auth_url}" target="_self" style="display: inline-block; background-color: #FC4C02; color: #FFFFFF !important; padding: 12px 24px; text-decoration: none; font-weight: 800; border-radius: 8px; font-family: sans-serif; font-size: 16px; box-shadow: 0 4px 12px rgba(252, 76, 2, 0.3); transition: transform 0.2s;">🔗 Połącz z kontem Strava</a>', unsafe_allow_html=True)
         else:
             st.error("Błąd konfiguracji: Brak klucza Strava w zmiennych środowiskowych.")
             
