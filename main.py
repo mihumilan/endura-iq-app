@@ -1155,7 +1155,101 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
         added_count += 1
         
     return added_count
-
+    
+def sync_from_strava(zawodnik, limit=10):
+    import requests
+    import time
+    tokens = db.get("strava_tokens", {}).get(zawodnik)
+    if not tokens: return 0
+    
+    if time.time() > tokens.get('expires_at', 0):
+        res = requests.post("https://www.strava.com/oauth/token", data={
+            "client_id": STRAVA_CLIENT_ID,
+            "client_secret": STRAVA_CLIENT_SECRET,
+            "grant_type": "refresh_token",
+            "refresh_token": tokens.get('refresh_token')
+        })
+        if res.status_code == 200:
+            tokens.update(res.json())
+            tdb = db.get("strava_tokens", {})
+            tdb[zawodnik] = tokens
+            db["strava_tokens"] = tdb
+        else: return 0
+            
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+    res = requests.get(f"https://www.strava.com/api/v3/athlete/activities?per_page={limit}", headers=headers)
+    if res.status_code != 200: return 0
+    
+    activities = res.json()
+    added_count = 0
+    existing_ids = [str(w.get("strava_id")) for w in st.session_state.session_treningi if w.get("zawodnik") == zawodnik and w.get("strava_id")]
+    athlete_zones = db.get("strefy", {}).get(zawodnik, {})
+    
+    for act in activities:
+        a_id = str(act['id'])
+        if a_id in existing_ids: continue
+        
+        type_str = act.get('type', '')
+        if type_str == 'Run': sport = 'Bieganie'
+        elif type_str in ['Ride', 'VirtualRide', 'GravelRide', 'EBikeRide']: sport = 'Rower'
+        elif type_str == 'Swim': sport = 'Pływanie'
+        elif type_str == 'WeightTraining': sport = 'Siłownia'
+        else: sport = 'Inne'
+        
+        dist_km = round(act.get('distance', 0) / 1000, 2)
+        duration_min = int(act.get('moving_time', 0) / 60)
+        act_date = act.get('start_date_local', '').split('T')[0]
+        tytul = act.get('name', f"{tr(sport)}: {dist_km}km")
+        
+        streams_res = requests.get(f"https://www.strava.com/api/v3/activities/{a_id}/streams?keys=time,heartrate,watts,velocity_smooth,cadence,latlng&key_by_type=true", headers=headers)
+        streams = None
+        tss_val = 0
+        avg_power = int(act.get('average_watts', 0))
+        
+        if streams_res.status_code == 200:
+            s_data = streams_res.json()
+            if 'time' in s_data:
+                streams = {'time': s_data['time']['data'], 'hr': [], 'watts': [], 'speed': [], 'cadence': [], 'lat': [], 'lon': []}
+                if 'heartrate' in s_data: streams['hr'] = s_data['heartrate']['data']
+                if 'watts' in s_data: streams['watts'] = s_data['watts']['data']
+                if 'velocity_smooth' in s_data: streams['speed'] = s_data['velocity_smooth']['data']
+                if 'cadence' in s_data: streams['cadence'] = s_data['cadence']['data']
+                if 'latlng' in s_data:
+                    streams['lat'] = [pt[0] for pt in s_data['latlng']['data']]
+                    streams['lon'] = [pt[1] for pt in s_data['latlng']['data']]
+                
+                if streams['watts']:
+                    np_val = calculate_normalized_power(streams['watts'])
+                    ftp_raw = str(athlete_zones.get(sport, {}).get('ftp', 250))
+                    ftp = float(ftp_raw) if ftp_raw.isnumeric() else 250.0
+                    if np_val > 0 and ftp > 0:
+                        tss_val = int(((duration_min*60) * np_val * (np_val/ftp)) / (ftp * 3600) * 100)
+        
+        if tss_val == 0 and duration_min > 0: tss_val = int((duration_min/60)*50)
+        
+        new_entry = {
+            "zawodnik": zawodnik, "strava_id": a_id, "dyscyplina": sport, "data": act_date,
+            "tytul": tytul, "czas": duration_min, "dystans": dist_km, "tss": tss_val,
+            "avg_power": avg_power, "wykonany": True, "komentarz": "Trening pobrany ze Strava.",
+            "rpe": 5, "feeling": "🙂", "streams": streams, "laps": [],
+            "peak_powers": {}, "best_times": {}, "komentarze_treningu": [],
+            "carbs": 0, "fluids": 0, "carbs_source": ""
+        }
+        
+        unex = [w for w in st.session_state.session_treningi if w.get("zawodnik") == zawodnik and not w.get("wykonany") and w.get("dyscyplina") == sport and str(w.get("data")) == act_date]
+        if unex:
+            old_w = unex[0]
+            st.session_state.session_treningi = [w for w in st.session_state.session_treningi if w is not old_w]
+            db["treningi"] = [w for w in db.get("treningi", []) if w != old_w]
+            new_entry['plan_czas'] = old_w.get('czas', 0)
+            new_entry['plan_tss'] = old_w.get('tss', 0)
+            new_entry['kroki'] = old_w.get('kroki', [])
+            if old_w.get('tytul') and old_w.get('tytul') != tr(sport): new_entry['tytul'] = old_w.get('tytul')
+        
+        save_data(new_entry)
+        added_count += 1
+        
+    return added_count
 def przygotuj_kalendarz(zawodnik):
     events = []; df = get_df(zawodnik if zawodnik != tr("Wszyscy") else None)
     today_str = str(date.today())
@@ -1747,6 +1841,25 @@ if not st.session_state.logged_in:
 # ==========================================
 ja = st.session_state.username
 
+ # --- PRZECHWYTYWANIE KODU STRAVA ---
+import requests
+if 'code' in st.query_params and st.session_state.role == "athlete":
+    auth_code = st.query_params['code']
+    with st.spinner("Autoryzacja Strava..."):
+        res = requests.post("https://www.strava.com/oauth/token", data={
+            "client_id": STRAVA_CLIENT_ID,
+            "client_secret": STRAVA_CLIENT_SECRET,
+            "code": auth_code,
+            "grant_type": "authorization_code"
+        })
+        if res.status_code == 200:
+            strava_tokens = db.get("strava_tokens", {})
+            strava_tokens[ja] = res.json()
+            db["strava_tokens"] = strava_tokens
+            st.success("✅ Strava podłączona pomyślnie!")
+        else:
+            st.error("❌ Błąd autoryzacji Strava. Spróbuj ponownie.")
+    st.query_params.clear()   
 if st.session_state.role == "athlete":
     athlete_info = db.get("zawodnicy_info", {}).get(ja, {})
     if not athlete_info.get("onboarded", False):
@@ -1872,7 +1985,29 @@ if menu == tr("Dodaj aktywność"):
                             st.error(f"{tr('Błąd synchronizacji:')} {str(e)}")
             else:
                 st.warning(tr("⚠️ Zanim pobierzesz treningi, musisz podać dane logowania do Garmina w zakładce 'Dane zawodnika' -> 'Integracje 🔗'"))
-
+with st.expander("🟧 Pobierz automatycznie ze Strava", expanded=False):
+            st.markdown("<span style='color:#8BA1B8; font-size:0.9em;'>Pobierz historię i nowe treningi bezpośrednio ze Stravy. (Tętno, moc, mapy GPS)</span>", unsafe_allow_html=True)
+            s_tokens = db.get("strava_tokens", {}).get(ja)
+            
+            if s_tokens:
+                c_sync1, c_sync2 = st.columns([2, 1])
+                sync_limit = c_sync1.selectbox("Ile ostatnich aktywności pobrać ze Strava?", [10, 30, 90], key="strava_lim")
+                if c_sync2.button("📥 Pobierz ze Strava"):
+                    with st.spinner(f"Łączenie ze Strava i pobieranie {sync_limit} aktywności (to może chwilę potrwać)..."):
+                        try:
+                            added = sync_from_strava(ja, sync_limit)
+                            if added > 0:
+                                consolidate_workouts()
+                                st.success(f"Zakończono! Pomyślnie pobrano {added} nowych treningów ze Strava.")
+                                st.balloons()
+                            else:
+                                st.info("Wszystkie treningi z wybranego okresu są już w Twojej bazie.")
+                            import time; time.sleep(2)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Błąd synchronizacji Strava: {str(e)}")
+            else:
+                st.warning("⚠️ Zanim pobierzesz treningi, musisz połączyć konto Strava w zakładce 'Dane zawodnika' -> 'Integracje 🔗'")
         with st.expander(tr("📂 Ręczne wgranie pliku (TCX)"), expanded=False):
             up = st.file_uploader(tr("Wgraj plik z zegarka"), type=['tcx'])
             if 'form_data' not in st.session_state: st.session_state.form_data = {'date': date.today(), 'time': 45, 'dist': 5.0, 'tss': 30, 'sport': 'Bieganie', 'avg_power': 0, 'streams': None, 'laps': [], 'peak_powers': {}, 'best_times': {}}
