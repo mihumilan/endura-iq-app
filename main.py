@@ -1155,7 +1155,7 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
         added_count += 1
         
     return added_count
-    
+
 def sync_from_strava(zawodnik, limit=10):
     import requests
     import time
@@ -1250,6 +1250,7 @@ def sync_from_strava(zawodnik, limit=10):
         added_count += 1
         
     return added_count
+
 def przygotuj_kalendarz(zawodnik):
     events = []; df = get_df(zawodnik if zawodnik != tr("Wszyscy") else None)
     today_str = str(date.today())
@@ -1417,6 +1418,7 @@ def render_planned_workout_view(t, user_ftp=250, unique_key=""):
             st.success("Usunięto!")
             time.sleep(1)
             st.rerun()
+
 def render_analysis_dashboard(t, user_settings, unique_key=""):
     if not t.get('wykonany'): return
 
@@ -1725,7 +1727,7 @@ def render_onboarding_view(zawodnik):
             p4 = st.slider(tr("Zdolność do odpoczynku:"), 1, 5, 3)
             
             st.markdown("---")
-            st.markdown(f"### {tr('Priorytet')}")
+            st.markdown(f"### {tr('Prioryťet')}")
             p5 = st.slider(tr("Priorytet treningu (1-10):"), 1, 10, 5, help=tr("1 = Życie prywatne, 10 = Trening 100%"))
             
             st.markdown("---")
@@ -1841,7 +1843,7 @@ if not st.session_state.logged_in:
 # ==========================================
 ja = st.session_state.username
 
- # --- PRZECHWYTYWANIE KODU STRAVA ---
+# --- PRZECHWYTYWANIE KODU STRAVA ---
 import requests
 if 'code' in st.query_params and st.session_state.role == "athlete":
     auth_code = st.query_params['code']
@@ -1860,6 +1862,7 @@ if 'code' in st.query_params and st.session_state.role == "athlete":
         else:
             st.error("❌ Błąd autoryzacji Strava. Spróbuj ponownie.")
     st.query_params.clear()   
+
 if st.session_state.role == "athlete":
     athlete_info = db.get("zawodnicy_info", {}).get(ja, {})
     if not athlete_info.get("onboarded", False):
@@ -1985,7 +1988,8 @@ if menu == tr("Dodaj aktywność"):
                             st.error(f"{tr('Błąd synchronizacji:')} {str(e)}")
             else:
                 st.warning(tr("⚠️ Zanim pobierzesz treningi, musisz podać dane logowania do Garmina w zakładce 'Dane zawodnika' -> 'Integracje 🔗'"))
-with st.expander("🟧 Pobierz automatycznie ze Strava", expanded=False):
+
+        with st.expander("🟧 Pobierz automatycznie ze Strava", expanded=False):
             st.markdown("<span style='color:#8BA1B8; font-size:0.9em;'>Pobierz historię i nowe treningi bezpośrednio ze Stravy. (Tętno, moc, mapy GPS)</span>", unsafe_allow_html=True)
             s_tokens = db.get("strava_tokens", {}).get(ja)
             
@@ -2008,6 +2012,7 @@ with st.expander("🟧 Pobierz automatycznie ze Strava", expanded=False):
                             st.error(f"Błąd synchronizacji Strava: {str(e)}")
             else:
                 st.warning("⚠️ Zanim pobierzesz treningi, musisz połączyć konto Strava w zakładce 'Dane zawodnika' -> 'Integracje 🔗'")
+
         with st.expander(tr("📂 Ręczne wgranie pliku (TCX)"), expanded=False):
             up = st.file_uploader(tr("Wgraj plik z zegarka"), type=['tcx'])
             if 'form_data' not in st.session_state: st.session_state.form_data = {'date': date.today(), 'time': 45, 'dist': 5.0, 'tss': 30, 'sport': 'Bieganie', 'avg_power': 0, 'streams': None, 'laps': [], 'peak_powers': {}, 'best_times': {}}
