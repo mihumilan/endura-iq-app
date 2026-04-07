@@ -2457,8 +2457,14 @@ elif menu in [tr("Fizjologia"), tr("Dane zawodnika")]:
                 f"approval_prompt=force&"
                 f"scope=activity:read_all"
             )
-            st.markdown(f'<a href="{strava_auth_url}" target="_self"><img src="https://auth.strava.com/assets/auth/strava-connect-button-orange-eeea16027a01d51a667e41e8c0e95ab52fa31cf6cc6a36f452033c4eb89e6717.svg" alt="Connect with Strava" style="height: 48px;"></a>', unsafe_allow_html=True)
-            st.markdown("<p style='color:#8BA1B8; font-size:12px; margin-top:10px;'>Powered by Strava</p>", unsafe_allow_html=True)
+            st.markdown(f"""
+            <a href="{strava_auth_url}" target="_self" style="text-decoration: none;">
+                <div style="background-color: #FC4C02; color: #FFFFFF; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 16px; font-weight: 700; height: 48px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; padding: 0 24px; box-shadow: 0 4px 12px rgba(252, 76, 2, 0.3);">
+                    Connect with STRAVA
+                </div>
+            </a>
+            """, unsafe_allow_html=True)
+            st.markdown("<p style='color:#8BA1B8; font-size:12px; margin-top:8px;'>Powered by Strava</p>", unsafe_allow_html=True)
         else:
             st.error("Błąd konfiguracji: Brak klucza Strava w zmiennych środowiskowych.")
             
