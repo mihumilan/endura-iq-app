@@ -93,10 +93,6 @@ def get_db_wrapper():
 
 db = get_db_wrapper()
 from playwright.sync_api import sync_playwright
-from playwright_stealth import stealth_sync
-
-def playwright_garmin_login(email, password):
-  from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 
 def playwright_garmin_login(email, password):
