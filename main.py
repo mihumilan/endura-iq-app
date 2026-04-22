@@ -96,15 +96,20 @@ from playwright.sync_api import sync_playwright
 from playwright_stealth import stealth_sync
 
 def playwright_garmin_login(email, password):
-    """Logowanie do Garmina przez udawaną przeglądarkę Chrome w celu ominięcia Cloudflare"""
+  from playwright.sync_api import sync_playwright
+from playwright_stealth import Stealth
+
+def playwright_garmin_login(email, password):
+    """Logowanie do Garmina przez udawaną przeglądarkę Chrome (wersja Stealth 2.0+)"""
     import garth
-    with sync_playwright() as p:
+    
+    # Odpalamy Playwrighta przez nową "niewidzialną" powłokę Stealth
+    with Stealth().use_sync(sync_playwright()) as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
         page = context.new_page()
-        stealth_sync(page) # Odpalenie trybu ninja (Stealth)
         
         try:
             # Garmin używa SSO (Single Sign-On), idziemy prosto na stronę logowania
@@ -120,7 +125,7 @@ def playwright_garmin_login(email, password):
             page.wait_for_url("**/connect**", timeout=15000)
             
             # Wyciągamy wygenerowane "bezpieczne" ciastka i tokeny
-            garth.client.login(email, password) # garth teraz użyje sesji z ciasteczkami
+            garth.client.login(email, password)
             token_dump = garth.client.dumps()
             browser.close()
             return token_dump
