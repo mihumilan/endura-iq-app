@@ -9,3 +9,5 @@ bcrypt
 cryptography
 dnspython
 certifi
+playwright
+playwright-stealth
