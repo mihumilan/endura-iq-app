@@ -822,7 +822,7 @@ def send_workout_to_garmin_connect(email, password, workout_data):
         except Exception:
             pass
             
-   if not logged_in:
+    if not logged_in:
         # Zamiast client.login(), wywołujemy naszą ukrytą przeglądarkę
         nowy_token = playwright_garmin_login(email, decrypted_password)
         
