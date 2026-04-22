@@ -92,7 +92,42 @@ def get_db_wrapper():
     return MongoDBWrapper(get_database_client())
 
 db = get_db_wrapper()
+from playwright.sync_api import sync_playwright
+from playwright_stealth import stealth_sync
 
+def playwright_garmin_login(email, password):
+    """Logowanie do Garmina przez udawaną przeglądarkę Chrome w celu ominięcia Cloudflare"""
+    import garth
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+        page = context.new_page()
+        stealth_sync(page) # Odpalenie trybu ninja (Stealth)
+        
+        try:
+            # Garmin używa SSO (Single Sign-On), idziemy prosto na stronę logowania
+            page.goto("https://sso.garmin.com/sso/signin")
+            page.wait_for_selector("input[name='username']", timeout=10000)
+            
+            # Wpisujemy dane jak człowiek
+            page.fill("input[name='username']", email)
+            page.fill("input[name='password']", password)
+            page.click("button[id='login-btn']")
+            
+            # Czekamy aż strona po logowaniu się przeładuje
+            page.wait_for_url("**/connect**", timeout=15000)
+            
+            # Wyciągamy wygenerowane "bezpieczne" ciastka i tokeny
+            garth.client.login(email, password) # garth teraz użyje sesji z ciasteczkami
+            token_dump = garth.client.dumps()
+            browser.close()
+            return token_dump
+            
+        except Exception as e:
+            browser.close()
+            raise Exception(f"Playwright Login Failed: {str(e)}")
 # --- AUTO-HEALER (ODCHUDZANIE BAZY DANYCH) ---
 try:
     stare_treningi = db.get("treningi", [])
@@ -787,11 +822,16 @@ def send_workout_to_garmin_connect(email, password, workout_data):
         except Exception:
             pass
             
-    if not logged_in:
-        client.login() # Jeśli przepustki nie ma, logujemy się normalnie
+   if not logged_in:
+        # Zamiast client.login(), wywołujemy naszą ukrytą przeglądarkę
+        nowy_token = playwright_garmin_login(email, decrypted_password)
+        
+        # Ładujemy zdobyty, bezpieczny token do klienta
+        client.garth.loads(nowy_token)
+        
         try:
-            tokens_db[zawodnik] = client.garth.dumps()
-            db["garmin_tokens"] = tokens_db # Zapisujemy nową przepustkę do bazy!
+            tokens_db[zawodnik] = nowy_token
+            db["garmin_tokens"] = tokens_db # Zapisujemy nową, potężną przepustkę do bazy!
         except Exception:
             pass
     # ---------------------------------------------
