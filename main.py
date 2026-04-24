@@ -1837,10 +1837,10 @@ if not st.session_state.logged_in:
         tab_log, tab_reg = st.tabs([tr("Logowanie"), tr("Rejestracja")])
 
     with tab_log:
-        u = st.text_input(tr("Użytkownik"), placeholder="admin", key="log_u")
-        p = st.text_input(tr("Hasło"), type="password", placeholder="••••••••", key="log_p")
+        u = st.text_input(tr("Użytkownik"), placeholder="admin / Twój Login", key="log_u_final")
+        p = st.text_input(tr("Hasło"), type="password", placeholder="••••••••", key="log_p_final")
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button(tr("Zaloguj")):
+        if st.button(tr("Zaloguj"), key="btn_login_final"):
             is_valid, rola = check_login(u, p)
             if is_valid:
                 st.session_state.logged_in = True
@@ -1851,71 +1851,47 @@ if not st.session_state.logged_in:
                 st.error(tr("Nieprawidłowy login lub hasło."))
 
     with tab_reg:
-        st.info(tr("Aby założyć konto, wpisz Kod Dostępu, który otrzymałeś na maila po opłaceniu subskrypcji."))
-        invite_code = st.text_input(tr("Kod Dostępu"), type="password", key="reg_invite")
+        st.markdown(f"<span style='color:#8BA1B8; font-size: 0.9em;'>{tr('Dołącz do Endura IQ - wpisz kod dostępu ze Stripe.')}</span>", unsafe_allow_html=True)
         
-        reg_u = st.text_input(tr("Nowy Użytkownik"), key="reg_u")
-        reg_p = st.text_input(tr("Hasło"), type="password", key="reg_p")
+        # Nowe pole na kod
+        invite_code = st.text_input(tr("Kod Dostępu"), type="password", key="reg_invite_final")
+        
+        reg_login = st.text_input(tr("Twój Login / Nick (musi być unikalny)"), key="reg_login_final")
+        reg_email = st.text_input(tr("Adres E-mail"), key="reg_email_final")
+        reg_name = st.text_input(tr("Imię i Nazwisko"), key="reg_name_final")
+        reg_pass = st.text_input(tr("Hasło"), type="password", key="reg_pass_final")
+        
         st.markdown("<br>", unsafe_allow_html=True)
-        
-        if st.button(tr("Zarejestruj")):
+        rodo_consent = st.checkbox(tr("Wyrażam zgodę na przetwarzanie moich danych medycznych (wymóg prawny RODO)."), key="rodo_final")
+
+        if st.button(tr("Utwórz konto"), key="btn_reg_final"):
+            users = db.get("users_db", {})
+            
+            # Blokada na kod
             if invite_code != "ENDURA-PRO-2026":
                 st.error(tr("Nieprawidłowy kod dostępu. Opłać subskrypcję, aby go otrzymać."))
-            elif reg_u == "" or reg_p == "":
-                st.warning(tr("Proszę podać login i hasło."))
-            elif user_exists(reg_u):
-                st.warning(tr("Użytkownik już istnieje!"))
+            elif reg_login in users:
+                st.error(tr("Użytkownik o takim loginie już istnieje. Wybierz inny!"))
+            elif len(reg_login) < 3 or len(reg_name) < 3 or len(reg_pass) < 4 or "@" not in reg_email:
+                st.error(tr("Wypełnij poprawnie wszystkie pola (Login i Imię min. 3 znaki, Hasło min. 4, poprawny email)."))
+            elif not rodo_consent:
+                st.error(tr("Musisz wyrazić zgodę na przetwarzanie danych medycznych (wymóg prawny RODO)."))
             else:
-                add_user(reg_u, reg_p)
-                st.success(tr("Konto utworzone! Możesz się zalogować."))
-        
-        with tab_log:
-            u = st.text_input(tr("Użytkownik"), placeholder="admin / Twój Login", key="log_u")
-            p = st.text_input(tr("Hasło"), type="password", placeholder="••••••••", key="log_p")
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button(tr("Zaloguj")):
-                is_valid, rola = check_login(u, p)
-                if is_valid: 
-                    st.session_state.logged_in = True
-                    st.session_state.username = u
-                    st.session_state.role = rola
-                    st.rerun()
-                else: 
-                    st.error(tr("Nieprawidłowy login lub hasło."))
+                # Twoja prawdziwa logika dodawania do bazy!
+                hashed_pw = bcrypt.hashpw(reg_pass.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                users[reg_login] = {"password": hashed_pw, "role": "athlete", "fullname": reg_name, "email": reg_email}
+                db["users_db"] = users
+                
+                zaw_list = db.get("zawodnicy_list", [])
+                if reg_login not in zaw_list:
+                    zaw_list.append(reg_login)
+                    db["zawodnicy_list"] = zaw_list
                     
-        with tab_reg:
-            st.markdown(f"<span style='color:#8BA1B8; font-size: 0.9em;'>{tr('Dołącz do Endura IQ i rozpocznij swoją profesjonalną drogę.')}</span>", unsafe_allow_html=True)
-            reg_login = st.text_input(tr("Twój Login / Nick (musi być unikalny)"))
-            reg_email = st.text_input(tr("Adres E-mail"))
-            reg_name = st.text_input(tr("Imię i Nazwisko"))
-            reg_pass = st.text_input(tr("Hasło"), type="password")
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            rodo_consent = st.checkbox(tr("Wyrażam zgodę na przetwarzanie moich danych dotyczących zdrowia (tętno, waga, informacje o kontuzjach) w celu realizacji planu treningowego."))
-            
-            if st.button(tr("Utwórz konto")):
-                users = db.get("users_db", {})
-                if reg_login in users:
-                    st.error(tr("Użytkownik o takim loginie już istnieje. Wybierz inny!"))
-                elif len(reg_login) < 3 or len(reg_name) < 3 or len(reg_pass) < 4 or "@" not in reg_email:
-                    st.error(tr("Wypełnij poprawnie wszystkie pola (Login i Imię min. 3 znaki, Hasło min. 4, poprawny email)."))
-                elif not rodo_consent:
-                    st.error(tr("Musisz wyrazić zgodę na przetwarzanie danych medycznych (wymóg prawny RODO)."))
-                else:
-                    hashed_pw = bcrypt.hashpw(reg_pass.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-                    users[reg_login] = {"password": hashed_pw, "role": "athlete", "fullname": reg_name, "email": reg_email}
-                    db["users_db"] = users
-                    
-                    zaw_list = db.get("zawodnicy_list", [])
-                    if reg_login not in zaw_list:
-                        zaw_list.append(reg_login)
-                        db["zawodnicy_list"] = zaw_list
-                        
-                    st.success(tr("Konto utworzone! Możesz się teraz zalogować w zakładce obok."))
-                    time.sleep(2)
-                    st.rerun()
-    st.stop()
+                st.success(tr("Konto utworzone! Możesz się teraz zalogować w zakładce obok."))
+                time.sleep(2)
+                st.rerun()
 
+    st.stop()
 # ==========================================
 # 5. APLIKACJA MAIN
 # ==========================================
