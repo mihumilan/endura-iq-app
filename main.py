@@ -158,6 +158,10 @@ if 'lang' not in st.session_state: st.session_state.lang = 'PL'
 
 TRANSLATIONS = {
     "EN": {
+        "Pobierz automatycznie ze Strava": "Auto-Sync from Strava",
+        "Pobierz historię i nowe treningi bezpośrednio ze Stravy. (Tętno, moc, mapy GPS)": "Download history and new workouts directly from Strava. (Heart rate, power, GPS maps)",
+        "Ile ostatnich aktywności pobrać ze Strava?": "How many recent activities to download from Strava?",
+        "📥 Pobierz ze Strava": "📥 Download from Strava",
         "Użytkownik": "Username", "Hasło": "Password", "Zaloguj": "Log In", "Wyloguj": "Log Out",
         "MENU": "MENU", "Dashboard": "Dashboard", "Kalendarz": "Calendar", "Wiadomości": "Messages",
         "Statystyki": "Statistics", "Raporty": "Reports", "Fizjologia": "Physiology", 
