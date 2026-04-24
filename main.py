@@ -1835,6 +1835,39 @@ if not st.session_state.logged_in:
         st.markdown("""<div class="login-header"><h1 class="login-title">ENDURA IQ</h1><p class="login-subtitle">Science-Based Coaching Platform</p></div>""", unsafe_allow_html=True)
         
         tab_log, tab_reg = st.tabs([tr("Logowanie"), tr("Rejestracja")])
+
+    with tab_log:
+        u = st.text_input(tr("Użytkownik"), placeholder="admin", key="log_u")
+        p = st.text_input(tr("Hasło"), type="password", placeholder="••••••••", key="log_p")
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button(tr("Zaloguj")):
+            is_valid, rola = check_login(u, p)
+            if is_valid:
+                st.session_state.logged_in = True
+                st.session_state.username = u
+                st.session_state.role = rola
+                st.rerun()
+            else:
+                st.error(tr("Nieprawidłowy login lub hasło."))
+
+    with tab_reg:
+        st.info(tr("Aby założyć konto, wpisz Kod Dostępu, który otrzymałeś na maila po opłaceniu subskrypcji."))
+        invite_code = st.text_input(tr("Kod Dostępu"), type="password", key="reg_invite")
+        
+        reg_u = st.text_input(tr("Nowy Użytkownik"), key="reg_u")
+        reg_p = st.text_input(tr("Hasło"), type="password", key="reg_p")
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        if st.button(tr("Zarejestruj")):
+            if invite_code != "ENDURA-PRO-2026":
+                st.error(tr("Nieprawidłowy kod dostępu. Opłać subskrypcję, aby go otrzymać."))
+            elif reg_u == "" or reg_p == "":
+                st.warning(tr("Proszę podać login i hasło."))
+            elif user_exists(reg_u):
+                st.warning(tr("Użytkownik już istnieje!"))
+            else:
+                add_user(reg_u, reg_p)
+                st.success(tr("Konto utworzone! Możesz się zalogować."))
         
         with tab_log:
             u = st.text_input(tr("Użytkownik"), placeholder="admin / Twój Login", key="log_u")
