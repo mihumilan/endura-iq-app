@@ -2080,9 +2080,9 @@ lang_sel = st.sidebar.radio(
             key="lang_selector_main_app" # <-- To jest ten magiczny klucz, który naprawi błąd!
         )
         
-        if lang_sel != st.session_state.get('lang', 'PL'):
-            st.session_state.lang = lang_sel
-            st.rerun()
+if lang_sel != st.session_state.get('lang', 'PL'):
+    st.session_state.lang = lang_sel
+    st.rerun()
 
 # --- SYSTEM POWIADOMIEŃ W MENU ---
 unread_count = sum(1 for m in db.get("chat", []) if m.get("do") == ja and m.get("read", True) is False)
