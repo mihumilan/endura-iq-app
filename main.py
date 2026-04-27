@@ -1392,7 +1392,7 @@ def przygotuj_kalendarz(zawodnik):
     today_str = str(date.today())
     
     for idx, t in df.iterrows():
-        ikona = "\uf70c" if t['dyscyplina'] == "Bieganie" else "\uf84a" if t['dyscyplina'] == "Rower" else "\uf5c4" if t['dyscyplina'] == "Pływanie" else "\uf44b"
+        ikona = "BIEG" if t['dyscyplina'] == "Bieganie" else "ROWER" if t['dyscyplina'] == "Rower" else "BASEN" if t['dyscyplina'] == "Pływanie" else "SIŁA"
         
         if t['wykonany']:
             if t.get('plan_czas', 0) > 0:
