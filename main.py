@@ -468,6 +468,7 @@ def tr(text):
     return text
 def inject_custom_css():
     st.markdown("""
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
         .stApp { background-color: #0A0D12; color: #E2E8F0; font-family: 'Inter', sans-serif; }
@@ -1390,7 +1391,7 @@ def przygotuj_kalendarz(zawodnik):
     today_str = str(date.today())
     
     for idx, t in df.iterrows():
-        ikona = "🏃" if t['dyscyplina'] == "Bieganie" else "🚴" if t['dyscyplina'] == "Rower" else "🏊" if t['dyscyplina'] == "Pływanie" else "🏋️"
+        ikona = "<i class='fas fa-running'></i>" if t['dyscyplina'] == "Bieganie" else "<i class='fas fa-biking'></i>" if t['dyscyplina'] == "Rower" else "<i class='fas fa-swimmer'></i>" if t['dyscyplina'] == "Pływanie" else "<i class='fas fa-dumbbell'></i>"
         
         if t['wykonany']:
             if t.get('plan_czas', 0) > 0:
