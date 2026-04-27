@@ -456,13 +456,17 @@ TRANSLATIONS = {
 
 
 def tr(text):
-    # Sprawdzamy, jaki język jest obecnie wybrany w pamięci (domyślnie "pl")
-    current_lang = st.session_state.get("lang", "pl")
+    # 1. Pobieramy język z pamięci i wymuszamy wielkie litery (.upper()), 
+    # żeby uniknąć jakichkolwiek konfliktów "en" vs "EN"
+    obecny_jezyk = str(st.session_state.get("lang", "PL")).upper()
     
-    # Jeśli wybrany jest angielski, tłumaczymy (lub zwracamy oryginał, gdy brakuje w słowniku)
-    if current_lang == "en":
-        # Upewnij się, że nazwa Twojego słownika to 'translations'
-        return TRANSLATIONS["EN"].get(text, text) 
+    # 2. Jeśli wybrany jest angielski, tłumaczymy
+    if obecny_jezyk == "EN":
+        # Bezpieczne pobieranie: jeśli słowa nie ma w słowniku, zwróci polski oryginał
+        return TRANSLATIONS.get("EN", {}).get(text, text)
+        
+    # 3. Domyślnie zwracamy polski tekst
+    return text 
         
     # Jeśli wybrany jest polski (lub jakikolwiek inny), po prostu zwracamy oryginalny polski tekst
     return text
