@@ -371,7 +371,7 @@ TRANSLATIONS = {
         "Odżywianie i Nawodnienie w trakcie (Opcjonalne)": "Nutrition & Hydration during workout (Optional)",
         "Płyny (ml)": "Fluids (ml)",
         "Węglowodany (g)": "Carbs (g)",
-        "Źródło (np. żele, izo)": "Source (e.g. gels, iso)"
+        "Źródło (np. żele, izo)": "Source (e.g. gels, iso)",
         "Witaj w Endura IQ, ": "Welcome to Endura IQ, ",
         "Witaj w Endura IQ, ": "Welcome to Endura IQ, ",
         "Witaj w Endura IQ, ": "Welcome to Endura IQ, ",
