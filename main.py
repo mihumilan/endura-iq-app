@@ -2072,8 +2072,17 @@ if st.session_state.role == "athlete":
 
 ja_disp = get_display_name(ja)
 st.sidebar.markdown(f"<h3 style='color: #00E5FF; text-align: center; margin-bottom: 20px;'>{ja_disp.split(' ')[0].upper()}</h3>", unsafe_allow_html=True)
-lang_sel = st.sidebar.radio("Language / Język", ["PL", "EN"], horizontal=True, index=0 if st.session_state.lang == 'PL' else 1)
-if lang_sel != st.session_state.lang: st.session_state.lang = lang_sel; st.rerun()
+lang_sel = st.sidebar.radio(
+            "Language / Język", 
+            ["PL", "EN"], 
+            horizontal=True, 
+            index=0 if st.session_state.get('lang', 'PL') == 'PL' else 1,
+            key="lang_selector_main_app" # <-- To jest ten magiczny klucz, który naprawi błąd!
+        )
+        
+        if lang_sel != st.session_state.get('lang', 'PL'):
+            st.session_state.lang = lang_sel
+            st.rerun()
 
 # --- SYSTEM POWIADOMIEŃ W MENU ---
 unread_count = sum(1 for m in db.get("chat", []) if m.get("do") == ja and m.get("read", True) is False)
