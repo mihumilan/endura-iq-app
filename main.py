@@ -372,6 +372,82 @@ TRANSLATIONS = {
         "Płyny (ml)": "Fluids (ml)",
         "Węglowodany (g)": "Carbs (g)",
         "Źródło (np. żele, izo)": "Source (e.g. gels, iso)"
+        "Witaj w Endura IQ, ": "Welcome to Endura IQ, ",
+        "Witaj w Endura IQ, ": "Welcome to Endura IQ, ",
+        "Witaj w Endura IQ, ": "Welcome to Endura IQ, ",
+        "Witaj w Endura IQ, ": "Welcome to Endura IQ, ",
+        "Zanim ułożymy Twój pierwszy plan, musimy się lepiej poznać. Przejdź przez krótki formularz, a my zajmiemy się resztą.": "Before we build your first plan, we need to know you better. Complete this short form, and we'll handle the rest.",
+        "❤️ Zdrowie": "❤️ Health",
+        "⏱️ Styl Życia": "⏱️ Lifestyle",
+        "🎯 Cele": "🎯 Goals",
+        "🚴 Sprzęt": "🚴 Equipment",
+        "📊 Historia": "📊 History",
+        "🧠 Psychologia": "🧠 Psychology",
+        "Podstawowe parametry": "Basic Parameters",
+        "Wzrost:": "Height (cm):",
+        "Waga:": "Weight (kg):",
+        "Tętno spoczynkowe:": "Resting Heart Rate (BPM):",
+        "Profil medyczny": "Medical Profile",
+        "Czy cierpisz na:": "Do you suffer from:",
+        "Cukrzyca:": "Diabetes:",
+        "Astma:": "Asthma:",
+        "Choroby serca:": "Heart disease:",
+        "Problemy z kręgosłupem/stawami:": "Spine/joint issues:",
+        "Urazy/Kontuzje:": "Injuries / Trauma:",
+        "Styl życia": "Lifestyle",
+        "Praca:": "Work:",
+        "Siedząca (biuro)": "Sedentary (office)",
+        "Fizyczna": "Physical",
+        "Mieszana": "Mixed",
+        "Wymagająca stania": "Standing",
+        "Średnia ilość snu (h)": "Average sleep (h)",
+        "Harmonogram dostępności (godziny:minuty/dzień)": "Availability schedule (hours:minutes/day)",
+        "PN": "MON",
+        "WT": "TUE",
+        "SR": "WED",
+        "CZ": "THU",
+        "PT": "FRI",
+        "SO": "SAT",
+        "ND": "SUN",
+        "Godz.": "Hrs.",
+        "Min.": "Min.",
+        "Cele i Doświadczenie": "Goals & Experience",
+        "Staż w sportach:": "Years in sports:",
+        "Cel główny:": "Main goal:",
+        "Główne zawody (Kategoria A):": "Main race (A-priority):",
+        "Dostępny Sprzęt": "Available Equipment",
+        "Basen/Wody otwarte:": "Pool/Open Water:",
+        "Siłownia:": "Gym access:",
+        "Trenażer Smart:": "Smart Trainer:",
+        "Pomiar mocy:": "Power meter:",
+        "Najsłabsze strony:": "Weaknesses:",
+        "Historia treningowa": "Training History",
+        "Średnia objętość (ostatnie 3 miesiące) [godz/tydz]:": "Average volume (last 3 months) [hrs/wk]:",
+        "Aktualne / Szacowane Wartości (wpisz 0 jeśli nie znasz)": "Current / Estimated Values (enter 0 if unknown)",
+        "Szacowane FTP (W):": "Estimated FTP (W):",
+        "Próg Mleczanowy - LTHR (BPM):": "Lactate Threshold HR (BPM):",
+        "Tętno Maksymalne (BPM):": "Max Heart Rate (BPM):",
+        "Gotowość na Tydzień Testowy:": "Readiness for Testing Week:",
+        "Testy wyznaczające dokładne strefy i krzywą profilu mocy (m.in. sprint 5s, 1min, 5min, 20min).": "Tests to define precise zones and power profile curve (e.g., 5s, 1min, 5min, 20min sprints).",
+        "Tak, zróbmy pełne testy (Profil Mocy: 5s, 1m, 5m, 20m + bieganie)": "Yes, let's do full tests (Power Profile + running)",
+        "Nie, mam aktualne badania/wyniki": "No, I have recent test results",
+        "Zdam się na decyzję trenera": "I'll leave it to the coach",
+        "Profil Psychologiczny (1-5)": "Psychological Profile (1-5)",
+        "Oceń siebie w skali od 1 (Słabo) do 5 (Doskonale)": "Rate yourself on a scale from 1 (Poor) to 5 (Excellent)",
+        "Odporność na ból:": "Pain tolerance:",
+        "Koncentracja w stresie:": "Focus under stress:",
+        "Dyscyplina treningowa:": "Training discipline:",
+        "Zdolność do odpoczynku:": "Ability to rest:",
+        "Priorytet": "Priority",
+        "Priorytet treningu (1-10):": "Training priority (1-10):",
+        "1 = Życie prywatne, 10 = Trening 100%": "1 = Personal life, 10 = Training 100%",
+        "Oczekiwania wobec trenera": "Expectations from the coach",
+        "Preferowany styl komunikacji:": "Preferred communication style:",
+        "Zbalansowany (dane + wsparcie)": "Balanced (data + support)",
+        "Tylko suche dane i analiza": "Only raw data and analysis",
+        "Dużo motywacji i wsparcia mentalnego": "Lots of motivation and mental support",
+        "ZAPISZ MÓJ PROFIL I WEJDŹ DO APLIKACJI 🚀": "SAVE MY PROFILE & ENTER THE APP 🚀",
+        "Profil zapisany! Trwa ładowanie Twojego konta...": "Profile saved! Loading your account..."
     }
 }
 
@@ -1689,8 +1765,19 @@ def render_workout_expander(row, idx, ja, is_coach=False):
                 render_analysis_dashboard(t_dict, u_strefy_disc, unique_key=str(idx))
 
 def render_onboarding_view(zawodnik):
+    # --- PRZEŁĄCZNIK JĘZYKA ---
+    col_empty, col_lang = st.columns([4, 1])
+    with col_lang:
+        is_en = st.toggle("🇬🇧 English", value=(st.session_state.get("lang", "pl") == "en"))
+        new_lang = "en" if is_en else "pl"
+        if st.session_state.get("lang", "pl") != new_lang:
+            st.session_state["lang"] = new_lang
+            st.rerun()
+    # --------------------------
+
     fullname = db.get("users_db", {}).get(zawodnik, {}).get("fullname", zawodnik)
     st.markdown("<br>", unsafe_allow_html=True)
+    
     st.markdown(f"<h1 style='text-align:center; color:#00E5FF;'>{tr('Witaj w Endura IQ, ')}{fullname.split(' ')[0]}! 🚀</h1>", unsafe_allow_html=True)
     st.markdown(f"<h4 style='text-align:center; color:#8BA1B8; margin-bottom: 30px;'>{tr('Zanim ułożymy Twój pierwszy plan, musimy się lepiej poznać. Przejdź przez krótki formularz, a my zajmiemy się resztą.')}</h4>", unsafe_allow_html=True)
     
@@ -1717,14 +1804,14 @@ def render_onboarding_view(zawodnik):
         with t2:
             st.markdown(f"### {tr('Styl życia')}")
             c1, c2 = st.columns(2)
-            praca = c1.selectbox(tr("Praca:"), ["Siedząca (biuro)", "Fizyczna", "Mieszana", "Wymagająca stania"])
+            praca = c1.selectbox(tr("Praca:"), [tr("Siedząca (biuro)"), tr("Fizyczna"), tr("Mieszana"), tr("Wymagająca stania")])
             sen = c2.number_input(tr("Średnia ilość snu (h)"), 4.0, 12.0, 7.5)
             
             st.markdown(f"### {tr('Harmonogram dostępności (godziny:minuty/dzień)')}")
             d1, d2, d3, d4, d5, d6, d7 = st.columns(7)
             for d, day_name in zip([d1,d2,d3,d4,d5,d6,d7], ["PN", "WT", "SR", "CZ", "PT", "SO", "ND"]):
                 with d:
-                    st.markdown(f"**{day_name}**")
+                    st.markdown(f"**{tr(day_name)}**")
                     st.number_input(tr("Godz."), 0, 24, 1 if day_name not in ["SO", "ND"] else 2, key=f"h_{day_name}")
                     st.number_input(tr("Min."), 0, 59, 0, key=f"m_{day_name}")
             
@@ -1772,7 +1859,7 @@ def render_onboarding_view(zawodnik):
             p4 = st.slider(tr("Zdolność do odpoczynku:"), 1, 5, 3)
             
             st.markdown("---")
-            st.markdown(f"### {tr('Prioryťet')}")
+            st.markdown(f"### {tr('Priorytet')}")
             p5 = st.slider(tr("Priorytet treningu (1-10):"), 1, 10, 5, help=tr("1 = Życie prywatne, 10 = Trening 100%"))
             
             st.markdown("---")
@@ -1784,7 +1871,7 @@ def render_onboarding_view(zawodnik):
             ])
             
         st.markdown("<br>", unsafe_allow_html=True)
-        submit_onboarding = st.form_submit_button("ZAPISZ MÓJ PROFIL I WEJDŹ DO APLIKACJI 🚀")
+        submit_onboarding = st.form_submit_button(tr("ZAPISZ MÓJ PROFIL I WEJDŹ DO APLIKACJI 🚀"))
         
         if submit_onboarding:
             profil = {
@@ -1815,10 +1902,9 @@ def render_onboarding_view(zawodnik):
             temp_info[zawodnik] = profil
             db["zawodnicy_info"] = temp_info
             
-            st.success("Profil zapisany! Trwa ładowanie Twojego konta...")
+            st.success(tr("Profil zapisany! Trwa ładowanie Twojego konta..."))
             time.sleep(2)
             st.rerun()
-
 # ==========================================
 # 4. LOGOWANIE I REJESTRACJA
 # ==========================================
