@@ -472,6 +472,7 @@ def inject_custom_css():
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
         .stApp { background-color: #0A0D12; color: #E2E8F0; font-family: 'Inter', sans-serif; }
+        .fc-event-title, .fc-event-main, .fc-list-event-title { font-family: 'Inter', 'Font Awesome 6 Free', sans-serif !important; font-weight: 900 !important; }
         section[data-testid="stSidebar"] { background-color: #11151C; border-right: 1px solid #1F2735; }
         h1, h2, h3, h4 { color: #00E5FF !important; font-weight: 800 !important; letter-spacing: -0.5px; }
         .login-header { text-align: center; margin-bottom: 40px; margin-top: 50px; }
@@ -1391,7 +1392,7 @@ def przygotuj_kalendarz(zawodnik):
     today_str = str(date.today())
     
     for idx, t in df.iterrows():
-        ikona = "<i class='fas fa-running'></i>" if t['dyscyplina'] == "Bieganie" else "<i class='fas fa-biking'></i>" if t['dyscyplina'] == "Rower" else "<i class='fas fa-swimmer'></i>" if t['dyscyplina'] == "Pływanie" else "<i class='fas fa-dumbbell'></i>"
+        ikona = "\uf70c" if t['dyscyplina'] == "Bieganie" else "\uf84a" if t['dyscyplina'] == "Rower" else "\uf5c4" if t['dyscyplina'] == "Pływanie" else "\uf44b"
         
         if t['wykonany']:
             if t.get('plan_czas', 0) > 0:
