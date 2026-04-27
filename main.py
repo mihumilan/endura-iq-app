@@ -1996,52 +1996,52 @@ if not st.session_state.logged_in:
 # ==========================================
 ja = st.session_state.username
 # Pobieramy login aktualnie zalogowanego użytkownika
-    zawodnik = st.session_state.get("username")
-    TRENER_LOGIN = "admin"
+zawodnik = st.session_state.get("username")
+TRENER_LOGIN = "admin"
 
-    # --- ETAP 1: SPRAWDZENIE ANKIETY ---
-    zawodnik_info = db.get("zawodnicy_info", {}).get(zawodnik)
+# --- ETAP 1: SPRAWDZENIE ANKIETY ---
+zawodnik_info = db.get("zawodnicy_info", {}).get(zawodnik)
 
-    # Jeśli klient nie ma zapisanej ankiety i nie jest trenerem -> pokaż ankietę i ZATRZYMAJ
-    if not zawodnik_info and zawodnik != TRENER_LOGIN:
-        render_onboarding_view(zawodnik)
-        st.stop() 
+# Jeśli klient nie ma zapisanej ankiety i nie jest trenerem -> pokaż ankietę i ZATRZYMAJ
+if not zawodnik_info and zawodnik != TRENER_LOGIN:
+    render_onboarding_view(zawodnik)
+    st.stop() 
 
-    # --- ETAP 2: KŁÓDKA PŁATNOŚCI ---
-    is_approved = db.get("users_db", {}).get(zawodnik, {}).get("is_approved", False)
+# --- ETAP 2: KŁÓDKA PŁATNOŚCI ---
+is_approved = db.get("users_db", {}).get(zawodnik, {}).get("is_approved", False)
 
-    # Jeśli klient wypełnił ankietę, ale trener go nie odblokował -> pokaż komunikat i ZATRZYMAJ
-    if zawodnik != TRENER_LOGIN and not is_approved:
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        st.success(tr("Twoja ankieta została zapisana! Dziękujemy."))
-        st.warning(tr("Twoje konto oczekuje teraz na weryfikację płatności i aktywację przez trenera. Zazwyczaj trwa to do 24 godzin. Proszę czekać..."))
-        st.stop() 
+# Jeśli klient wypełnił ankietę, ale trener go nie odblokował -> pokaż komunikat i ZATRZYMAJ
+if zawodnik != TRENER_LOGIN and not is_approved:
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.success(tr("Twoja ankieta została zapisana! Dziękujemy."))
+    st.warning(tr("Twoje konto oczekuje teraz na weryfikację płatności i aktywację przez trenera. Zazwyczaj trwa to do 24 godzin. Proszę czekać..."))
+    st.stop() 
 
-    # --- ETAP 3: PANEL TRENERA ---
-    # Jeśli zaloguje się trener, pokazujemy mu suwaki do odblokowywania ludzi
-    if zawodnik == TRENER_LOGIN:
-        st.markdown(f"## 🛠️ {tr('Panel Trenera: Aktywacja Kont')}")
-        
-        users_db = db.get("users_db", {})
-        
-        for user_key, user_data in users_db.items():
-            if user_key == TRENER_LOGIN:
-                continue
-                
-            fullname = user_data.get("fullname", user_key)
-            current_status = user_data.get("is_approved", False) 
+# --- ETAP 3: PANEL TRENERA ---
+# Jeśli zaloguje się trener, pokazujemy mu suwaki do odblokowywania ludzi
+if zawodnik == TRENER_LOGIN:
+    st.markdown(f"## 🛠️ {tr('Panel Trenera: Aktywacja Kont')}")
+    
+    users_db = db.get("users_db", {})
+    
+    for user_key, user_data in users_db.items():
+        if user_key == TRENER_LOGIN:
+            continue
             
-            new_status = st.toggle(f"{fullname} ({user_key})", value=current_status, key=f"approve_{user_key}")
+        fullname = user_data.get("fullname", user_key)
+        current_status = user_data.get("is_approved", False) 
+        
+        new_status = st.toggle(f"{fullname} ({user_key})", value=current_status, key=f"approve_{user_key}")
+        
+        if new_status != current_status:
+            users_db[user_key]["is_approved"] = new_status
+            db["users_db"] = users_db
+            st.success("Zaktualizowano status. Odśwież stronę (F5).")
+            import time
+            time.sleep(1)
+            st.rerun()
             
-            if new_status != current_status:
-                users_db[user_key]["is_approved"] = new_status
-                db["users_db"] = users_db
-                st.success("Zaktualizowano status. Odśwież stronę (F5).")
-                import time
-                time.sleep(1)
-                st.rerun()
-                
-        st.markdown("---")
+    st.markdown("---")
 # --- PRZECHWYTYWANIE KODU STRAVA ---
 import requests
 if 'code' in st.query_params and st.session_state.role == "athlete":
