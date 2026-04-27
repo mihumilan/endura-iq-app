@@ -451,8 +451,18 @@ TRANSLATIONS = {
     }
 }
 
-def tr(text): return text if st.session_state.lang == "PL" else TRANSLATIONS["EN"].get(text, text)
 
+def tr(text):
+    # Sprawdzamy, jaki język jest obecnie wybrany w pamięci (domyślnie "pl")
+    current_lang = st.session_state.get("lang", "pl")
+    
+    # Jeśli wybrany jest angielski, tłumaczymy (lub zwracamy oryginał, gdy brakuje w słowniku)
+    if current_lang == "en":
+        # Upewnij się, że nazwa Twojego słownika to 'translations'
+        return TRANSLATIONS["EN"].get(text, text) 
+        
+    # Jeśli wybrany jest polski (lub jakikolwiek inny), po prostu zwracamy oryginalny polski tekst
+    return text
 def inject_custom_css():
     st.markdown("""
     <style>
