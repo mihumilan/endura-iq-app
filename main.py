@@ -1842,7 +1842,26 @@ def render_workout_expander(row, idx, ja, is_coach=False):
                 nutri_str = f"**{tr('Odżywianie')}:** 🧃 {fluids} ml | ⚡ {carbs} g"
                 if carbs_source: nutri_str += f" *({carbs_source})*"
                 col_rpe1.markdown(nutri_str)
-                
+              # --- PRZYCISK USUWANIA TRENINGU ---
+    st.markdown("---")
+    # Używamy unikalnego klucza (key) z identyfikatorem 'idx', żeby Streamlit wiedział, który to przycisk
+    if st.button(tr("🗑️ USUŃ TĘ AKTYWNOŚĆ"), key=f"del_btn_{idx}_{t_dict.get('data')}", type="primary", use_container_width=True):
+        
+        # Filtrujemy bazę danych "treningi", omijając ten konkretny trening (po zawodniku, dacie i tytule)
+        db["treningi"] = [
+            w for w in db.get("treningi", []) 
+            if not (
+                w.get('zawodnik') == t_dict['zawodnik'] and 
+                str(w.get('data')) == str(t_dict['data']) and 
+                w.get('tytul') == t_dict['tytul']
+            )
+        ]
+        
+        # Wyświetlamy czerwony komunikat, czekamy 1.5 sekundy i odświeżamy kalendarz
+        st.error(tr("Trening został pomyślnie usunięty z kalendarza."))
+        import time
+        time.sleep(1.5)
+        st.rerun()  
             if t_dict.get('komentarz'):
                 col_rpe1.markdown(f"*{t_dict.get('komentarz')}*")
                 
