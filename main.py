@@ -1842,63 +1842,63 @@ def render_workout_expander(row, idx, ja, is_coach=False):
                 nutri_str = f"**{tr('Odżywianie')}:** 🧃 {fluids} ml | ⚡ {carbs} g"
                 if carbs_source: nutri_str += f" *({carbs_source})*"
                 col_rpe1.markdown(nutri_str)
-              # --- PRZYCISK USUWANIA TRENINGU ---
-    st.markdown("---")
-    # Używamy unikalnego klucza (key) z identyfikatorem 'idx', żeby Streamlit wiedział, który to przycisk
-    if st.button(tr("🗑️ USUŃ TĘ AKTYWNOŚĆ"), key=f"del_btn_{idx}_{t_dict.get('data')}", type="primary", use_container_width=True):
-        
-        # Filtrujemy bazę danych "treningi", omijając ten konkretny trening (po zawodniku, dacie i tytule)
-        db["treningi"] = [
-            w for w in db.get("treningi", []) 
-            if not (
-                w.get('zawodnik') == t_dict['zawodnik'] and 
-                str(w.get('data')) == str(t_dict['data']) and 
-                w.get('tytul') == t_dict['tytul']
-            )
-        ]
-        
-            # Wyświetlamy czerwony komunikat, czekamy 1.5 sekundy i odświeżamy kalendarz
-    st.error(tr("Trening został pomyślnie usunięty z kalendarza."))
-    import time
-    time.sleep(1.5)
-    st.rerun()  
-    if t_dict.get('komentarz'):
-        col_rpe1.markdown(f"*{t_dict.get('komentarz')}*")
-                    
-        if not is_coach:
-            if col_rpe2.button(tr("✏️ Edytuj ocenę"), key=f"btn_edit_{idx}_{t_dict['data']}"):
-                st.session_state[f"edit_rating_{idx}_{t_dict['data']}"] = not st.session_state.get(f"edit_rating_{idx}_{t_dict['data']}", False)
+                      # --- PRZYCISK USUWANIA TRENINGU ---
+            st.markdown("---")
+            # Używamy unikalnego klucza (key) z identyfikatorem 'idx', żeby Streamlit wiedział, który to przycisk
+            if st.button(tr("🗑️ USUŃ TĘ AKTYWNOŚĆ"), key=f"del_btn_{idx}_{t_dict.get('data')}", type="primary", use_container_width=True):
                 
-            if st.session_state.get(f"edit_rating_{idx}_{t_dict['data']}", False):
-                with st.form(key=f"form_rating_{idx}_{t_dict['data']}"):
-                    n_rpe = st.slider(tr("RPE (Odczuwany wysiłek)"), 1, 10, int(t_dict.get('rpe', 5)))
-                    n_feel = st.select_slider(tr("Samopoczucie"), ["😫","😕","😐","🙂","🤩"], value=t_dict.get('feeling', '🙂'))
-                    
-                    st.markdown(f"**{tr('Odżywianie i Nawodnienie w trakcie (Opcjonalne)')}**")
-                    c_nutri1, c_nutri2, c_nutri3 = st.columns(3)
-                    n_fluids = c_nutri1.number_input(tr("Płyny (ml)"), 0, 10000, int(t_dict.get('fluids', 0)), step=100)
-                    n_carbs = c_nutri2.number_input(tr("Węglowodany (g)"), 0, 1000, int(t_dict.get('carbs', 0)), step=10)
-                    n_carbs_src = c_nutri3.text_input(tr("Źródło (np. żele, izo)"), value=t_dict.get('carbs_source', ''))
-                    
-                    n_kom = st.text_area(tr("Notatka dla trenera"), value=t_dict.get('komentarz', ''))
-                    
-                    if st.form_submit_button(tr("Zapisz")):
-                        temp_db = list(db.get("treningi", []))
-                        for w in temp_db:
-                            if w.get('zawodnik') == t_dict['zawodnik'] and str(w.get('data')) == str(t_dict['data']) and w.get('tytul') == t_dict['tytul'] and w.get('dyscyplina') == t_dict['dyscyplina']:
-                                w['rpe'] = n_rpe
-                                w['feeling'] = n_feel
-                                w['komentarz'] = n_kom
-                                w['carbs'] = n_carbs
-                                w['fluids'] = n_fluids
-                                w['carbs_source'] = n_carbs_src
-                        db["treningi"] = temp_db
-                        st.session_state.session_treningi = temp_db
-                        st.session_state[f"edit_rating_{idx}_{t_dict['data']}"] = False
-                        st.rerun()
-    
-        if st.toggle(tr("Pełna Analiza (Wykresy i Mapa)"), key=f"tgl_{idx}_{t_dict['data']}"):
-            render_analysis_dashboard(t_dict, u_strefy_disc, unique_key=str(idx))
+                # Filtrujemy bazę danych "treningi", omijając ten konkretny trening (po zawodniku, dacie i tytule)
+                db["treningi"] = [
+                    w for w in db.get("treningi", []) 
+                    if not (
+                        w.get('zawodnik') == t_dict['zawodnik'] and 
+                        str(w.get('data')) == str(t_dict['data']) and 
+                        w.get('tytul') == t_dict['tytul']
+                    )
+                ]
+                
+                    # Wyświetlamy czerwony komunikat, czekamy 1.5 sekundy i odświeżamy kalendarz
+            st.error(tr("Trening został pomyślnie usunięty z kalendarza."))
+            import time
+            time.sleep(1.5)
+            st.rerun()  
+            if t_dict.get('komentarz'):
+                col_rpe1.markdown(f"*{t_dict.get('komentarz')}*")
+                            
+                if not is_coach:
+                    if col_rpe2.button(tr("✏️ Edytuj ocenę"), key=f"btn_edit_{idx}_{t_dict['data']}"):
+                        st.session_state[f"edit_rating_{idx}_{t_dict['data']}"] = not st.session_state.get(f"edit_rating_{idx}_{t_dict['data']}", False)
+                        
+                    if st.session_state.get(f"edit_rating_{idx}_{t_dict['data']}", False):
+                        with st.form(key=f"form_rating_{idx}_{t_dict['data']}"):
+                            n_rpe = st.slider(tr("RPE (Odczuwany wysiłek)"), 1, 10, int(t_dict.get('rpe', 5)))
+                            n_feel = st.select_slider(tr("Samopoczucie"), ["😫","😕","😐","🙂","🤩"], value=t_dict.get('feeling', '🙂'))
+                            
+                            st.markdown(f"**{tr('Odżywianie i Nawodnienie w trakcie (Opcjonalne)')}**")
+                            c_nutri1, c_nutri2, c_nutri3 = st.columns(3)
+                            n_fluids = c_nutri1.number_input(tr("Płyny (ml)"), 0, 10000, int(t_dict.get('fluids', 0)), step=100)
+                            n_carbs = c_nutri2.number_input(tr("Węglowodany (g)"), 0, 1000, int(t_dict.get('carbs', 0)), step=10)
+                            n_carbs_src = c_nutri3.text_input(tr("Źródło (np. żele, izo)"), value=t_dict.get('carbs_source', ''))
+                            
+                            n_kom = st.text_area(tr("Notatka dla trenera"), value=t_dict.get('komentarz', ''))
+                            
+                            if st.form_submit_button(tr("Zapisz")):
+                                temp_db = list(db.get("treningi", []))
+                                for w in temp_db:
+                                    if w.get('zawodnik') == t_dict['zawodnik'] and str(w.get('data')) == str(t_dict['data']) and w.get('tytul') == t_dict['tytul'] and w.get('dyscyplina') == t_dict['dyscyplina']:
+                                        w['rpe'] = n_rpe
+                                        w['feeling'] = n_feel
+                                        w['komentarz'] = n_kom
+                                        w['carbs'] = n_carbs
+                                        w['fluids'] = n_fluids
+                                        w['carbs_source'] = n_carbs_src
+                                db["treningi"] = temp_db
+                                st.session_state.session_treningi = temp_db
+                                st.session_state[f"edit_rating_{idx}_{t_dict['data']}"] = False
+                                st.rerun()
+            
+                if st.toggle(tr("Pełna Analiza (Wykresy i Mapa)"), key=f"tgl_{idx}_{t_dict['data']}"):
+                    render_analysis_dashboard(t_dict, u_strefy_disc, unique_key=str(idx))
 
 def render_onboarding_view(zawodnik):
     # --- PRZEŁĄCZNIK JĘZYKA ---
