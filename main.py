@@ -2429,6 +2429,7 @@ if menu == tr("Dodaj aktywność"):
         for idx, row in recent_plan.iterrows():
             render_workout_expander(row, idx, ja, is_coach=False)
 
+
 # --- 1.5 CZAT (WIADOMOŚCI) ---
 elif menu == tr("Wiadomości"):
     st.title(f"💬 {tr('Wiadomości')}")
