@@ -1844,23 +1844,24 @@ def render_workout_expander(row, idx, ja, is_coach=False):
                 col_rpe1.markdown(nutri_str)
                       # --- PRZYCISK USUWANIA TRENINGU ---
                 # --- PRZYCISK USUWANIA TRENINGU ---
-            st.markdown("---")
-            if st.button(tr("🗑️ USUŃ TĘ AKTYWNOŚĆ"), key=f"del_btn_{idx}_{t_dict.get('data')}", type="primary", use_container_width=True):
-                try:
-                    # 1. Usuwamy tylko ten jeden, konkretny duplikat z listy
-                    db["treningi"].remove(t_dict)
-                    
-                    # 2. POPRAWNY ZAPIS (Zgodny z Twoją aplikacją!)
-                    st.session_state.session_treningi = db["treningi"]
-                    
-                    st.error(tr("Trening został pomyślnie usunięty z kalendarza."))
-                    import time
-                    time.sleep(1)
-                    st.rerun()
-                except Exception as e:
-                    st.warning(f"Błąd podczas usuwania: {e}")
-                    
-        
+        st.markdown("---")
+        if st.button(tr("🗑️ USUŃ TĘ AKTYWNOŚĆ"), key=f"del_btn_{idx}_{t_dict.get('data')}", type="primary", use_container_width=True):
+            try:
+                # 1. Ręczne wyszukiwanie i usunięcie JEDNEJ sztuki duplikatu
+                for i, w in enumerate(db["treningi"]):
+                    if w.get('zawodnik') == t_dict.get('zawodnik') and str(w.get('data')) == str(t_dict.get('data')) and w.get('tytul') == t_dict.get('tytul'):
+                        del db["treningi"][i]
+                        break  # Przerywamy po usunięciu jednego, żeby nie skasować wszystkich!
+                
+                # 2. POPRAWNY ZAPIS DO PAMIĘCI APLIKACJI
+                st.session_state.session_treningi = db["treningi"]
+                
+                st.error(tr("Trening został pomyślnie usunięty z kalendarza."))
+                import time
+                time.sleep(1)
+                st.rerun()
+            except Exception as e:
+                st.warning(f"Błąd podczas usuwania: {e}")
             if t_dict.get('komentarz'):
                 col_rpe1.markdown(f"*{t_dict.get('komentarz')}*")
                             
