@@ -563,6 +563,65 @@ cal_css = """
 
 inject_custom_css()
 
+def znajdz_rekordy(distances, times):
+    """
+    Skanuje plik GPS i znajduje najlepsze czasy dla kluczowych dystansów.
+    distances: lista dystansów narastająco w metrach (np. [0, 5, 12, ...])
+    times: lista czasu narastająco w sekundach (np. [0, 1, 2, ...])
+    """
+    # Słownik z dystansami, których szukamy (w metrach)
+    cel = {
+        'pb_400': 400, 
+        'pb_1k': 1000, 
+        'pb_5k': 5000, 
+        'pb_10k': 10000, 
+        'pb_21k': 21097, 
+        'pb_42k': 42195
+    }
+    
+    wyniki = {}
+    if not distances or not times or len(distances) < 2:
+        return wyniki
+
+    max_dist = distances[-1]
+    n = len(distances)
+
+    for klucz, dystans_docelowy in cel.items():
+        if max_dist < dystans_docelowy:
+            continue # Dystans treningu był za krótki na ten rekord
+            
+        best_time = float('inf')
+        j = 0
+        
+        # Ruchome okno skanujące cały trening
+        for i in range(n):
+            start_dist = distances[i]
+            start_time = times[i]
+            
+            # Przesuwamy koniec okna, aż złapiemy docelowy dystans
+            while j < n and distances[j] - start_dist < dystans_docelowy:
+                j += 1
+                
+            if j >= n:
+                break
+                
+            # Mamy odcinek! Robimy interpolację dla maksymalnej precyzji (jak Strava)
+            dist_diff = distances[j] - distances[j-1]
+            time_diff = times[j] - times[j-1]
+            
+            if dist_diff > 0:
+                nadwyzka_metrow = (distances[j] - start_dist) - dystans_docelowy
+                proporcja = nadwyzka_metrow / dist_diff
+                dokladny_czas_konca = times[j] - (proporcja * time_diff)
+                
+                czas_odcinka = dokladny_czas_konca - start_time
+                if czas_odcinka < best_time:
+                    best_time = czas_odcinka
+
+        if best_time != float('inf'):
+            wyniki[klucz] = round(best_time)
+
+    return wyniki
 # ==========================================
 # 2. DYNAMICZNA STRUKTURA UŻYTKOWNIKÓW 
 # ==========================================
@@ -2271,8 +2330,59 @@ if menu == tr("Dodaj aktywność"):
                         new_entry['plan_tss'] = old_w.get('tss', 0)
                         new_entry['kroki'] = old_w.get('kroki', [])
                         new_entry['tytul'] = old_w.get('tytul', new_entry['tytul'])
-                    save_data(new_entry); st.success(tr("Zapisano!")); st.session_state.pop('form_data', None); st.rerun()
-
+                    
+               # 1. Najpierw zapisujemy sam trening
+            save_data(new_entry)
+            st.session_state.pop('form_data', None)
+            
+            # 2. Odpalamy AUTO-SKANER REKORDÓW BIEGOWYCH (zanim strona się przeładuje!)
+            if f_sport == "Bieganie" and up is not None:
+                try:
+                    up.seek(0) # Cofamy wskaźnik pliku na początek
+                    from datetime import datetime
+                    import xml.etree.ElementTree as ET
+                    
+                    root = ET.fromstring(up.getvalue())
+                    ns = {'tcx': 'http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2'}
+                    pts_d = []; pts_t = []; t0 = None
+                    
+                    # Błyskawicznie skanujemy plik sekunda po sekundzie
+                    for tp in root.findall('.//tcx:Trackpoint', ns):
+                        t_node = tp.find('tcx:Time', ns)
+                        d_node = tp.find('tcx:DistanceMeters', ns)
+                        if t_node is not None and d_node is not None:
+                            t_val = datetime.fromisoformat(t_node.text.replace('Z', '+00:00')).timestamp()
+                            if t0 is None: t0 = t_val
+                            pts_d.append(float(d_node.text))
+                            pts_t.append(t_val - t0)
+                            
+                    # Jeśli plik ma dane z GPS, odpalamy silnik!
+                    if len(pts_d) > 10:
+                        nowe_pb = znajdz_rekordy(pts_d, pts_t)
+                        if nowe_pb:
+                            mapa_kluczy = {'pb_400': '400m', 'pb_1k': '1km', 'pb_5k': '5km', 'pb_10k': '10km', 'pb_21k': 'Półmaraton', 'pb_42k': 'Maraton'}
+                            stare_pb = next((x for x in db.get("run_records", []) if x['zawodnik'] == ja), {"400m":0, "1km":0, "5km":0, "10km":0, "Półmaraton":0, "Maraton":0})
+                            zaktualizowano = False
+                            
+                            for klucz_silnika, nowy_czas in nowe_pb.items():
+                                db_klucz = mapa_kluczy[klucz_silnika]
+                                stary_czas = stare_pb.get(db_klucz, 0)
+                                if stary_czas == 0 or nowy_czas < float(stary_czas):
+                                    stare_pb[db_klucz] = nowy_czas
+                                    zaktualizowano = True
+                                    
+                            if zaktualizowano:
+                                db["run_records"] = [x for x in db.get("run_records", []) if x['zawodnik'] != ja] + [{"zawodnik": ja, **stare_pb}]
+                                st.balloons()
+                                st.success(tr("🏆 Przeskanowano plik! Wykryto i zapisano nowe rekordy biegowe!"))
+                except Exception as e:
+                    pass
+            
+            # 3. Pokazujemy sukces, czekamy 2.5 sekundy (żebyś zobaczył balony!) i DOPIERO WTYDY odświeżamy
+            st.success(tr("Zapisano trening!"))
+            import time
+            time.sleep(2.5) 
+            st.rerun()
         st.markdown(f"### {tr('Ostatnie Aktywności')}")
         df_plan = get_df(ja)
         # Limit do 15 ostatnich, by nie zawieszać przeglądarki!
