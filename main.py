@@ -1858,10 +1858,10 @@ def render_workout_expander(row, idx, ja, is_coach=False):
         ]
         
             # Wyświetlamy czerwony komunikat, czekamy 1.5 sekundy i odświeżamy kalendarz
-            st.error(tr("Trening został pomyślnie usunięty z kalendarza."))
-            import time
-            time.sleep(1.5)
-            st.rerun()  
+    st.error(tr("Trening został pomyślnie usunięty z kalendarza."))
+        import time
+        time.sleep(1.5)
+        st.rerun()  
         if t_dict.get('komentarz'):
             col_rpe1.markdown(f"*{t_dict.get('komentarz')}*")
                 
