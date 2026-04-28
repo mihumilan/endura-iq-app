@@ -1846,6 +1846,21 @@ def render_workout_expander(row, idx, ja, is_coach=False):
             st.markdown("---")
             # Używamy unikalnego klucza (key) z identyfikatorem 'idx', żeby Streamlit wiedział, który to przycisk
             if st.button(tr("🗑️ USUŃ TĘ AKTYWNOŚĆ"), key=f"del_btn_{id(t_dict)}", type="primary", use_container_width=True):
+            # 1. Usuwamy tylko JEDNĄ kopię tego treningu (bezpieczne dla duplikatów)
+            try:
+                db["treningi"].remove(t_dict)
+                
+                # 2. ZAPIS DO BAZY (Kluczowy krok!)
+                # W Twojej aplikacji prawdopodobnie trzeba wywołać funkcję zapisu.
+                # Zazwyczaj wygląda to tak:
+                db.put(db["treningi"], "treningi")
+                
+                st.error(tr("Trening został pomyślnie usunięty z kalendarza."))
+                import time
+                time.sleep(1)
+                st.rerun()
+            except Exception as e:
+                st.warning(f"Błąd podczas usuwania: {e}")
                 
                 # Filtrujemy bazę danych "treningi", omijając ten konkretny trening (po zawodniku, dacie i tytule)
                 db["treningi"] = [
