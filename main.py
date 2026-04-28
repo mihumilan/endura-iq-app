@@ -1845,7 +1845,7 @@ def render_workout_expander(row, idx, ja, is_coach=False):
                       # --- PRZYCISK USUWANIA TRENINGU ---
             st.markdown("---")
             # Używamy unikalnego klucza (key) z identyfikatorem 'idx', żeby Streamlit wiedział, który to przycisk
-            if st.button(tr("🗑️ USUŃ TĘ AKTYWNOŚĆ"), key=f"del_btn_{idx}_{t_dict.get('data')}", type="primary", use_container_width=True):
+            if st.button(tr("🗑️ USUŃ TĘ AKTYWNOŚĆ"), key=f"del_btn_{id(t_dict)}", type="primary", use_container_width=True):
                 
                 # Filtrujemy bazę danych "treningi", omijając ten konkretny trening (po zawodniku, dacie i tytule)
                 db["treningi"] = [
