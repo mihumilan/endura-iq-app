@@ -1287,6 +1287,45 @@ def sync_from_garmin(zawodnik, email, password, limit=10):
                 
                 tcx_file = io.BytesIO(tcx_data)
                 parsed_tcx = parse_tcx_pro(tcx_file, athlete_zones, expected_sport=sport)
+
+                # --- AUTO-SKANER REKORDÓW Z GARMINA (W TLE) ---
+                if sport == "Bieganie":
+                    try:
+                        import xml.etree.ElementTree as ET
+                        from datetime import datetime
+                        root = ET.fromstring(tcx_data)
+                        ns = {'tcx': 'http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2'}
+                        pts_d = []; pts_t = []; t0 = None
+                        
+                        # Skanowanie pliku z Garmina
+                        for tp in root.findall('.//tcx:Trackpoint', ns):
+                            t_node = tp.find('tcx:Time', ns)
+                            d_node = tp.find('tcx:DistanceMeters', ns)
+                            if t_node is not None and d_node is not None:
+                                t_val = datetime.fromisoformat(t_node.text.replace('Z', '+00:00')).timestamp()
+                                if t0 is None: t0 = t_val
+                                pts_d.append(float(d_node.text))
+                                pts_t.append(t_val - t0)
+                                
+                        if len(pts_d) > 10:
+                            nowe_pb = znajdz_rekordy(pts_d, pts_t)
+                            if nowe_pb:
+                                mapa = {'pb_400': '400m', 'pb_1k': '1km', 'pb_5k': '5km', 'pb_10k': '10km', 'pb_21k': 'Półmaraton', 'pb_42k': 'Maraton'}
+                                stare_pb = next((x for x in db.get("run_records", []) if x['zawodnik'] == zawodnik), {"400m":0, "1km":0, "5km":0, "10km":0, "Półmaraton":0, "Maraton":0})
+                                zaktualizowano = False
+                                
+                                for k, nowy_czas in nowe_pb.items():
+                                    db_k = mapa[k]
+                                    stary_czas = stare_pb.get(db_k, 0)
+                                    if stary_czas == 0 or nowy_czas < float(stary_czas):
+                                        stare_pb[db_k] = round(nowy_czas)
+                                        zaktualizowano = True
+                                        
+                                if zaktualizowano:
+                                    db["run_records"] = [x for x in db.get("run_records", []) if x['zawodnik'] != zawodnik] + [{"zawodnik": zawodnik, **stare_pb}]
+                    except Exception:
+                        pass # Jeśli plik z Garmina nie ma GPS (np. bieg na bieżni), cicho pomijamy
+                # ----------------------------------------------
                 
                 if parsed_tcx['time'] > 0:
                     parsed = parsed_tcx
