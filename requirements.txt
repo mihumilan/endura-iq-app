@@ -11,3 +11,4 @@ dnspython
 certifi
 playwright
 playwright-stealth
+garth
