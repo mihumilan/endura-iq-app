@@ -96,13 +96,33 @@ from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 
 def playwright_garmin_login(email, password):
-    """Bezpośrednie logowanie do Garmina przez mobilne API (pomijamy Playwrighta)"""
+    from playwright.sync_api import sync_playwright
     import garth
+    
     try:
-        garth.client.login(email, password)
-        return garth.client.dumps()
+        with sync_playwright() as p:
+            # Uruchamiamy ukrytą przeglądarkę
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            
+            # Wchodzimy na stronę logowania Garmina
+            page.goto("https://sso.garmin.com/sso/signin")
+            
+            # Logowanie wewnątrz ukrytej ramki (iframe)
+            ramka = page.frame_locator("#gauth-widget-frame-gauth-widget")
+            ramka.locator("#username").fill(email)
+            ramka.locator("#password").fill(password)
+            ramka.locator("#login-btn").click()
+            
+            # Czekamy 5 sekund, aż Garmin przetworzy kliknięcie i nas przepuści
+            page.wait_for_timeout(5000)
+            
+            # Pobieramy tokeny autoryzacyjne
+            garth.client.login(email, password)
+            return garth.client.dumps()
+            
     except Exception as e:
-        raise Exception(f"Logowanie przez API odrzucone: {str(e)}")
+        raise Exception(f"Playwright Login Failed: {str(e)}")
 # --- AUTO-HEALER (ODCHUDZANIE BAZY DANYCH) ---
 try:
     stare_treningi = db.get("treningi", [])
