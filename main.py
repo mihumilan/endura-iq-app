@@ -109,13 +109,17 @@ def playwright_garmin_login(email, password):
         
         try:
             # Garmin używa SSO (Single Sign-On), idziemy prosto na stronę logowania
+    # 1. Garmin używa SSO (Single Sign-On)
             page.goto("https://sso.garmin.com/sso/signin")
-            page.wait_for_selector("input[name='username']", timeout=10000)
             
-            # Wpisujemy dane jak człowiek
-            page.fill("input[name='username']", email)
-            page.fill("input[name='password']", password)
-            page.click("button[id='login-btn']")
+            # 2. UWAGA: Formularz logowania jest ukryty w pływającej ramce (iframe)!
+            # Wskazujemy botowi, żeby wszedł do tej konkretnej ramki:
+            ramka = page.frame_locator("#gauth-widget-frame-gauth-widget")
+            
+            # 3. Wpisujemy dane i klikamy przycisk wewnątrz ramki
+            ramka.locator("#username").fill(email)
+            ramka.locator("#password").fill(password)
+            ramka.locator("#login-btn").click()
             
             # Czekamy aż strona po logowaniu się przeładuje
             page.wait_for_url("**/connect**", timeout=15000)
