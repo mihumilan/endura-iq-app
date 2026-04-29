@@ -3,5 +3,8 @@
 # Instalacja standardowych pakietów
 pip install -r requirements.txt
 
-# Instalacja niewidocznej przeglądarki Chromium dla Playwrighta
-playwright install chromium
+# Bezpieczna instalacja przeglądarki bezpośrednio przez moduł Pythona
+python -m playwright install chromium
+
+# Instalacja brakujących paczek systemowych Linuxa (KLUCZOWE NA SERWERZE!)
+python -m playwright install-deps
