@@ -96,43 +96,13 @@ from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 
 def playwright_garmin_login(email, password):
-    """Logowanie do Garmina przez udawaną przeglądarkę Chrome (wersja Stealth 2.0+)"""
+    """Bezpośrednie logowanie do Garmina przez mobilne API (pomijamy Playwrighta)"""
     import garth
-    
-    # Odpalamy Playwrighta przez nową "niewidzialną" powłokę Stealth
-    with Stealth().use_sync(sync_playwright()) as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-        page = context.new_page()
-        
-        try:
-            # Garmin używa SSO (Single Sign-On), idziemy prosto na stronę logowania
-    # 1. Garmin używa SSO (Single Sign-On)
-            page.goto("https://sso.garmin.com/sso/signin")
-            
-            # 2. UWAGA: Formularz logowania jest ukryty w pływającej ramce (iframe)!
-            # Wskazujemy botowi, żeby wszedł do tej konkretnej ramki:
-            ramka = page.frame_locator("#gauth-widget-frame-gauth-widget")
-            
-            # 3. Wpisujemy dane i klikamy przycisk wewnątrz ramki
-            ramka.locator("#username").fill(email)
-            ramka.locator("#password").fill(password)
-            ramka.locator("#login-btn").click()
-            
-            # Czekamy aż strona po logowaniu się przeładuje
-            page.wait_for_url("**/connect**", timeout=15000)
-            
-            # Wyciągamy wygenerowane "bezpieczne" ciastka i tokeny
-            garth.client.login(email, password)
-            token_dump = garth.client.dumps()
-            browser.close()
-            return token_dump
-            
-        except Exception as e:
-            browser.close()
-            raise Exception(f"Playwright Login Failed: {str(e)}")
+    try:
+        garth.client.login(email, password)
+        return garth.client.dumps()
+    except Exception as e:
+        raise Exception(f"Logowanie przez API odrzucone: {str(e)}")
 # --- AUTO-HEALER (ODCHUDZANIE BAZY DANYCH) ---
 try:
     stare_treningi = db.get("treningi", [])
