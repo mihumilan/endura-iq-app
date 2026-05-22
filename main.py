@@ -2245,21 +2245,20 @@ if menu == tr("Dodaj aktywność"):
         
         # --- ZBIORCZE WYSYŁANIE PLANU NA ZEGAREK (7 DNI) ---
         with st.expander(tr("📤 Wyślij nadchodzące treningi na zegarek (7 dni)"), expanded=False):
-            st.markdown(f"<span style='color:#8BA1B8; font-size:0.9em;'>{tr('Wyślij wszystkie zaplanowane treningi na najbliższe 7 dni jednym kliknięciem.')}</span>", unsafe_allow_html=True)
             st.markdown("### 📥 Eksport Treningów")
-st.info("Pobierz zaplanowany trening na dysk, aby ręcznie wgrać go na zegarek.")
+            st.info("Pobierz zaplanowany trening na dysk, aby ręcznie wgrać go na zegarek.")
 
-# Przykładowa zawartość pliku (później podepniemy tu Twój generator)
-zawartosc_pliku = "To jest testowy plik z planem treningowym Endura IQ."
+            # Przykładowa zawartość pliku (później podepniemy tu Twój generator)
+            zawartosc_pliku = "To jest testowy plik z planem treningowym Endura IQ."
 
-st.download_button(
-    label="Pobierz plik treningowy",
-    data=zawartosc_pliku,
-    file_name="trening_endura_iq.txt",
-    mime="text/plain"
-)
-                            
-        with st.expander(tr("🔄 Pobierz automatycznie z Garmin Connect"), expanded=False):
+            st.download_button(
+                label="Pobierz plik treningowy",
+                data=zawartosc_pliku,
+                file_name="trening_endura_iq.txt",
+                mime="text/plain"
+            )
+
+        with st.expander(tr("🛜 Pobierz automatycznie z Garmin Connect"), expanded=False):
             st.markdown(f"<span style='color:#8BA1B8; font-size:0.9em;'>{tr('Aplikacja sama znajdzie Twoje ostatnie treningi w chmurze Garmina, pobierze ich ukryte pliki TCX i dokona pełnej analizy.')}</span>", unsafe_allow_html=True)
             g_creds = db.get("garmin_creds", {}).get(ja, {})
             
