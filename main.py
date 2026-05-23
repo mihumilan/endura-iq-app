@@ -1697,25 +1697,42 @@ def render_planned_workout_view(t, user_ftp=250, unique_key=""):
     col_sync, col_del = st.columns([2, 1])
     
     with col_sync:
-        st.markdown(f"### ☁️ {tr('Synchronizacja')}")
-        if st.button("🚀 Wyślij prosto do Garmin Connect", key=f"gc_{t['tytul']}_{t['data']}_{unique_key}"):
-            with st.spinner(f"{tr('Łączenie z Garmin Connect i pobieranie')} 1 {tr('aktywności... (to potrwa kilkanaście sekund)')}"):
-                zawodnik = t.get('zawodnik')
-                g_creds = db.get("garmin_creds", {}).get(zawodnik, {})
-                if not g_creds.get("email") or not g_creds.get("password"):
-                    st.error(tr("Brak danych logowania do Garmin Connect. Uzupełnij je najpierw w zakładce 'Dane Zawodnika' -> 'Integracje 🔗'."))
-                else:
-                    try:
-                        ok, msg = send_workout_to_garmin_connect(g_creds["email"], g_creds["password"], t)
-                        if ok: 
-                            st.success(msg)
-                            st.balloons()
-                        else: st.error(msg)
-                    except Exception as e:
-                        if "Authentication" in str(e) or "Login" in str(e) or "401" in str(e) or "403" in str(e):
-                            st.error(tr("⚠️ Błąd logowania! Sprawdź czy e-mail/hasło są poprawne. Upewnij się też, że na koncie Garmin masz wyłączoną weryfikację dwuetapową (2FA)."))
-                        else:
-                            st.error(f"{tr('⚠️ Błąd integracji:')} {str(e)}")
+            st.markdown(f"### ☁️ {tr('Synchronizacja')}")
+            
+            # --- NOWY PRZYCISK: Pobieranie pliku .FIT ---
+            try:
+                fit_data = generate_fit_workout(t)
+                nazwa_pliku = f"{t.get('tytul', 'trening')}_{t.get('data')}.fit".replace(" ", "_").replace("-", "")
+                
+                st.download_button(
+                    label="⚡ Pobierz trening na zegarek (.FIT)",
+                    data=fit_data,
+                    file_name=nazwa_pliku,
+                    mime="application/octet-stream",
+                    key=f"dl_fit_{t.get('tytul', 't')}_{t.get('data', 'd')}_{unique_key}"
+                )
+            except Exception as e:
+                st.error(f"Nie udało się wygenerować pliku .FIT: {e}")
+            # --------------------------------------------
+
+            if st.button("🚀 Wyślij prosto do Garmin Connect", key=f"gc_{t['tytul']}_{t['data']}_{unique_key}"):
+                with st.spinner(f"{tr('Łączenie z Garmin Connect i pobieranie')} 1 {tr('aktywności... (to potrwa kilkanaście sekund)')}"):
+                    zawodnik = t.get('zawodnik')
+                    g_creds = db.get("garmin_creds", {}).get(zawodnik, {})
+                    if not g_creds.get("email") or not g_creds.get("password"):
+                        st.error(tr("Brak danych logowania do Garmin Connect. Uzupełnij je najpierw w zakładce 'Dane Zawodnika' -> 'Integracje 🔗'."))
+                    else:
+                        try:
+                            ok, msg = send_workout_to_garmin_connect(g_creds["email"], g_creds["password"], t)
+                            if ok: 
+                                st.success(msg)
+                                st.balloons()
+                            else: st.error(msg)
+                        except Exception as e:
+                            if "Authentication" in str(e) or "Login" in str(e) or "401" in str(e) or "403" in str(e):
+                                st.error(tr("⚠️ Błąd logowania! Sprawdź czy e-mail/hasło są poprawne. Upewnij się też, że na koncie Garmin masz wyłączoną weryfikację dwuetapową (2FA)."))
+                            else:
+                                st.error(f"{tr('⚠️ Błąd integracji:')} {str(e)}")
                             
     with col_del:
         st.markdown("### 🗑️ Opcje")
