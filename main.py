@@ -15,7 +15,7 @@ import io
 import zipfile
 import os
 from streamlit_calendar import calendar
-from garmin_fit_sdk import Profile, Encoder
+
 
 # Ustawienia strony MUSZĄ być jako pierwsza komenda
 st.set_page_config(page_title="Endura IQ", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
@@ -953,84 +953,86 @@ def get_next_race(zawodnik):
     return future_races[0]
 
 def generate_fit_workout(workout_data):
-    """Generuje binarną zawartość pliku .FIT na podstawie workout_data z bazy Endura IQ"""
-    import io
-    from datetime import datetime
+        from fit_tool.fit_file_builder import FitFileBuilder
+        from fit_tool.profile.messages.file_id_message import FileIdMessage
+        from fit_tool.profile.messages.workout_message import WorkoutMessage
+        from fit_tool.profile.messages.workout_step_message import WorkoutStepMessage
+        from fit_tool.profile.profile_type import Manufacturer, FileType, Sport, Intensity, WorkoutStepDuration, WorkoutStepTarget
+        import datetime
+        import tempfile
+        import os
     
-    stream = io.BytesIO()
-    encoder = Encoder(stream)
+        builder = FitFileBuilder(auto_define=True, min_string_size=50)
     
-    # 1. Nagłówek pliku
-    file_id_msg = {
-        'type': Profile.Message.FILE_ID,
-        'fields': {
-            'type': Profile.File.WORKOUT,
-            'manufacturer': Profile.Manufacturer.DEVELOPMENT,
-            'product': 0,
-            'serial_number': 12345,
-            'time_created': int((datetime.utcnow() - datetime(1989, 12, 31)).total_seconds())
-        }
-    }
-    encoder.write(file_id_msg)
-    
-    nazwa_treningu = workout_data.get('tytul', 'Trening Endura IQ')
-    kroki = workout_data.get('kroki', [])
-    
-    # 2. Główny komunikat
-    workout_msg = {
-        'type': Profile.Message.WORKOUT,
-        'fields': {
-            'wkt_name': nazwa_treningu[:15], 
-            'sport': Profile.Sport.CYCLING if "Rower" in workout_data.get('dyscyplina', '') else Profile.Sport.RUNNING,
-            'num_valid_steps': len(kroki)
-        }
-    }
-    encoder.write(workout_msg)
-    
-    def get_intensity(typ):
-        t = str(typ).lower()
-        if 'rozgrzewka' in t: return Profile.Intensity.WARMUP
-        if 'rozjazd' in t or 'schłodzenie' in t: return Profile.Intensity.COOLDOWN
-        if 'przerwa' in t or 'odpoczynek' in t: return Profile.Intensity.REST
-        return Profile.Intensity.ACTIVE
-
-    # 3. Kroki
-    for i, step in enumerate(kroki):
-        fields = {
-            'message_index': i,
-            'workout_step_name': step.get('typ', 'Krok')[:15],
-            'intensity': get_intensity(step.get('typ', '')),
-            'duration_type': Profile.WorkoutStepDuration.TIME,
-            'duration_value': int(step.get('czas_total_sec', 0)) * 1000, 
-        }
+        # 1. Nagłówek pliku
+        file_id_msg = FileIdMessage()
+        file_id_msg.type = FileType.WORKOUT
+        file_id_msg.manufacturer = Manufacturer.GARMIN
+        file_id_msg.product = 0
+        file_id_msg.time_created = round(datetime.datetime.now().timestamp() * 1000)
+        builder.add(file_id_msg)
         
-        cel = step.get('tryb', '')
-        v1 = step.get('val_min', 0)
-        v2 = step.get('val_max', 0)
+        # 2. Główny komunikat treningu
+        workout_msg = WorkoutMessage()
+        workout_msg.workout_name = workout_data.get('tytul', 'Trening')[:15]
+        workout_msg.sport = Sport.CYCLING if "Rower" in workout_data.get('dyscyplina', '') else Sport.RUNNING
+        kroki = workout_data.get('kroki', [])
+        workout_msg.num_valid_steps = len(kroki)
+        builder.add(workout_msg)
+    
+        def get_intensity(typ):
+            t = str(typ).lower()
+            if 'rozgrzewka' in t: return Intensity.WARMUP
+            if 'rozjazd' in t or 'schłodzenie' in t: return Intensity.COOLDOWN
+            if 'przerwa' in t or 'odpoczynek' in t: return Intensity.REST
+            return Intensity.ACTIVE
+    
+        # 3. Kroki treningowe z Twojej aplikacji
+        for i, step_data in enumerate(kroki):
+            step = WorkoutStepMessage()
+            step.message_index = i
+            step.workout_step_name = step_data.get('typ', 'Krok')[:15]
+            step.intensity = get_intensity(step_data.get('typ', ''))
+            step.duration_type = WorkoutStepDuration.TIME
+            step.duration_value = int(step_data.get('czas_total_sec', 0)) * 1000
+    
+            cel = step_data.get('tryb', '')
+            v1 = step_data.get('val_min', 0)
+            v2 = step_data.get('val_max', 0)
+    
+            if 'waty' in cel.lower() or '%ftp' in cel.lower():
+                step.target_type = WorkoutStepTarget.POWER
+                step.custom_target_value_low = int(float(v1) + 1000) if v1 else 1000
+                step.custom_target_value_high = int(float(v2) + 1000) if v2 else 1000
+            elif 'tempo' in cel.lower():
+                step.target_type = WorkoutStepTarget.SPEED
+                speed1 = 1000.0 / (v1 * 60.0) if v1 else 0
+                speed2 = 1000.0 / (v2 * 60.0) if v2 else 0
+                step.custom_target_value_low = int(min(speed1, speed2) * 1000)
+                step.custom_target_value_high = int(max(speed1, speed2) * 1000)
+            elif 'tętno' in cel.lower() or 'hr' in cel.lower():
+                step.target_type = WorkoutStepTarget.HEART_RATE
+                step.custom_target_value_low = int(v1) + 100 if v1 else 100
+                step.custom_target_value_high = int(v2) + 100 if v2 else 100
+            else:
+                step.target_type = WorkoutStepTarget.OPEN
+                step.target_value = 0
+    
+            builder.add(step)
+    
+        # 4. Zapis do pliku binarnego
+        fit_file = builder.build()
         
-        if 'waty' in cel.lower() or '%ftp' in cel.lower():
-            fields['target_type'] = Profile.WorkoutStepTarget.POWER
-            fields['custom_target_value_low'] = int(float(v1) + 1000) if v1 else 1000
-            fields['custom_target_value_high'] = int(float(v2) + 1000) if v2 else 1000
-        elif 'tempo' in cel.lower():
-            fields['target_type'] = Profile.WorkoutStepTarget.SPEED
-            speed1 = 1000.0 / (v1 * 60.0) if v1 else 0
-            speed2 = 1000.0 / (v2 * 60.0) if v2 else 0
-            fields['custom_target_value_low'] = int(min(speed1, speed2) * 1000)
-            fields['custom_target_value_high'] = int(max(speed1, speed2) * 1000)
-        elif 'tętno' in cel.lower() or 'hr' in cel.lower():
-            fields['target_type'] = Profile.WorkoutStepTarget.HEART_RATE
-            fields['custom_target_value_low'] = int(v1) + 100 if v1 else 100
-            fields['custom_target_value_high'] = int(v2) + 100 if v2 else 100
-        else:
-            fields['target_type'] = Profile.WorkoutStepTarget.OPEN
-            fields['custom_target_value_low'] = 0
-            fields['custom_target_value_high'] = 0
+        with tempfile.NamedTemporaryFile(suffix=".fit", delete=False) as tmp:
+            temp_path = tmp.name
             
-        encoder.write({'type': Profile.Message.WORKOUT_STEP, 'fields': fields})
+        fit_file.to_file(temp_path)
         
-    encoder.finish()
-    return stream.getvalue()
+        with open(temp_path, "rb") as f:
+            file_bytes = f.read()
+            
+        os.remove(temp_path)
+        return file_bytes
 
 # TUTAJ JEST TWOJA STARA FUNKCJA (nie kasuj jej):
 # def send_workout_to_garmin_connect(email, password, workout_data):
