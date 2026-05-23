@@ -446,6 +446,18 @@ TRANSLATIONS = {
         "Twoja ankieta została zapisana! Dziękujemy.": "Your profile has been saved! Thank you.",
         "Twoje konto oczekuje teraz na weryfikację płatności i aktywację przez trenera. Zazwyczaj trwa to do 24 godzin. Proszę czekać...": "Your account is now pending payment verification and activation by the coach. This usually takes up to 24 hours. Please wait...",
         "Panel Trenera: Aktywacja Kont": "Coach Panel: Account Activation",
+        "Eksport Treningów": "Workout Export",
+        "Pobierz zaplanowany trening na dysk, aby ręcznie wgrać go na zegarek.": "Download the planned workout to your drive to manually upload it to your watch.",
+        "Trening do pobrania:": "Workout to download:",
+        "⚡ Pobierz trening na zegarek (.FIT)": "⚡ Download workout to watch (.FIT)",
+        "🛜 Pobierz automatycznie z Garmin Connect": "🛜 Auto-Sync from Garmin Connect",
+        "🟧 Pobierz automatycznie ze Strava": "🟧 Auto-Sync from Strava",
+        "Łączenie ze Strava i pobieranie": "Connecting to Strava and downloading",
+        "aktywności (to może chwilę potrwać)...": "activities (this might take a while)...",
+        "Zakończono! Pomyślnie pobrano": "Finished! Successfully downloaded",
+        "nowych treningów ze Strava.": "new workouts from Strava.",
+        "Wszystkie treningi z wybranego okresu są już w Twojej bazie.": "All workouts from the selected period are already in your database.",
+        "⚠️ Zanim pobierzesz treningi, musisz połączyć konto Strava w zakładce 'Dane zawodnika' -> 'Integracje 🔗'": "⚠️ Before downloading workouts, you must connect your Strava account in the 'Athlete Data' -> 'Integrations 🔗' tab.",
     }
 }
 
@@ -2347,8 +2359,8 @@ if menu == tr("Dodaj aktywność"):
         
         # --- ZBIORCZE WYSYŁANIE PLANU NA ZEGAREK (7 DNI) ---
         with st.expander(tr("📤 Wyślij nadchodzące treningi na zegarek (7 dni)"), expanded=False):
-            st.markdown("### 📥 Eksport Treningów")
-            st.info("Pobierz zaplanowany trening na dysk, aby ręcznie wgrać go na zegarek.")
+            st.markdown(f"### 📥 {tr('Eksport Treningów')}")
+            st.info(tr("Pobierz zaplanowany trening na dysk, aby ręcznie wgrać go na zegarek."))
 
             # Szukamy najbliższego zaplanowanego treningu
             df_plan = get_df(ja)
@@ -2356,14 +2368,14 @@ if menu == tr("Dodaj aktywność"):
             
             if not df_nadchodzace.empty:
                 najblizszy_trening = df_nadchodzace.iloc[0].to_dict()
-                st.success(f"Trening do pobrania: **{najblizszy_trening.get('tytul')}** ({najblizszy_trening.get('data')})")
+                st.success(f"{tr('Trening do pobrania:')} **{najblizszy_trening.get('tytul')}** ({najblizszy_trening.get('data')})")
                 
                 try:
                     fit_data = generate_fit_workout(najblizszy_trening) 
                     nazwa_pliku = f"trening_{najblizszy_trening.get('data')}.fit".replace("-", "")
                     
                     st.download_button(
-                        label="⚡ Pobierz trening na zegarek (.FIT)",
+                        label=tr("⚡ Pobierz trening na zegarek (.FIT)"),
                         data=fit_data,
                         file_name=nazwa_pliku,
                         mime="application/octet-stream"
@@ -2371,7 +2383,8 @@ if menu == tr("Dodaj aktywność"):
                 except Exception as e:
                     st.error(f"Nie udało się wygenerować pliku .FIT: {e}")
             else:
-                st.warning("Brak nadchodzących treningów do pobrania.")
+                st.warning(tr("Brak nadchodzących treningów do pobrania."))
+
         with st.expander(tr("🛜 Pobierz automatycznie z Garmin Connect"), expanded=False):
             st.markdown(f"<span style='color:#8BA1B8; font-size:0.9em;'>{tr('Aplikacja sama znajdzie Twoje ostatnie treningi w chmurze Garmina, pobierze ich ukryte pliki TCX i dokona pełnej analizy.')}</span>", unsafe_allow_html=True)
             g_creds = db.get("garmin_creds", {}).get(ja, {})
@@ -2396,29 +2409,29 @@ if menu == tr("Dodaj aktywność"):
             else:
                 st.warning(tr("⚠️ Zanim pobierzesz treningi, musisz podać dane logowania do Garmina w zakładce 'Dane zawodnika' -> 'Integracje 🔗'"))
 
-        with st.expander("🟧 Pobierz automatycznie ze Strava", expanded=False):
-            st.markdown("<span style='color:#8BA1B8; font-size:0.9em;'>Pobierz historię i nowe treningi bezpośrednio ze Stravy. (Tętno, moc, mapy GPS)</span>", unsafe_allow_html=True)
+        with st.expander(tr("🟧 Pobierz automatycznie ze Strava"), expanded=False):
+            st.markdown(f"<span style='color:#8BA1B8; font-size:0.9em;'>{tr('Pobierz historię i nowe treningi bezpośrednio ze Stravy. (Tętno, moc, mapy GPS)')}</span>", unsafe_allow_html=True)
             s_tokens = db.get("strava_tokens", {}).get(ja)
             
             if s_tokens:
                 c_sync1, c_sync2 = st.columns([2, 1])
-                sync_limit = c_sync1.selectbox("Ile ostatnich aktywności pobrać ze Strava?", [10, 30, 90], key="strava_lim")
-                if c_sync2.button("📥 Pobierz ze Strava"):
-                    with st.spinner(f"Łączenie ze Strava i pobieranie {sync_limit} aktywności (to może chwilę potrwać)..."):
+                sync_limit = c_sync1.selectbox(tr("Ile ostatnich aktywności pobrać ze Strava?"), [10, 30, 90], key="strava_lim")
+                if c_sync2.button(tr("📥 Pobierz ze Strava")):
+                    with st.spinner(f"{tr('Łączenie ze Strava i pobieranie')} {sync_limit} {tr('aktywności (to może chwilę potrwać)...')}"):
                         try:
                             added = sync_from_strava(ja, sync_limit)
                             if added > 0:
                                 consolidate_workouts()
-                                st.success(f"Zakończono! Pomyślnie pobrano {added} nowych treningów ze Strava.")
+                                st.success(f"{tr('Zakończono! Pomyślnie pobrano')} {added} {tr('nowych treningów ze Strava.')}")
                                 st.balloons()
                             else:
-                                st.info("Wszystkie treningi z wybranego okresu są już w Twojej bazie.")
+                                st.info(tr("Wszystkie treningi z wybranego okresu są już w Twojej bazie."))
                             import time; time.sleep(2)
                             st.rerun()
                         except Exception as e:
                             st.error(f"Błąd synchronizacji Strava: {str(e)}")
             else:
-                st.warning("⚠️ Zanim pobierzesz treningi, musisz połączyć konto Strava w zakładce 'Dane zawodnika' -> 'Integracje 🔗'")
+                st.warning(tr("⚠️ Zanim pobierzesz treningi, musisz połączyć konto Strava w zakładce 'Dane zawodnika' -> 'Integracje 🔗'"))
 
         with st.expander(tr("📂 Ręczne wgranie pliku (TCX)"), expanded=False):
             up = st.file_uploader(tr("Wgraj plik z zegarka"), type=['tcx'])
