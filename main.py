@@ -1016,14 +1016,14 @@ def generate_fit_workout(workout_data):
                 step.target_type = WorkoutStepTarget.POWER
                 low = int(float(v1)) if v1 else 0
                 high = int(float(v2)) if v2 else low
-                step.custom_target_value_low = low
-                step.custom_target_value_high = high if high > 0 else low
+                step.custom_target_value_low = low + 1000
+                step.custom_target_value_high = (high + 1000) if high > 0 else (low + 1000)
             elif '%ftp' in cel.lower():
                 step.target_type = WorkoutStepTarget.POWER
                 low = int(float(v1)) if v1 else 0
                 high = int(float(v2)) if v2 else low
-                step.custom_target_value_low = low + 1000
-                step.custom_target_value_high = (high + 1000) if high > 0 else (low + 1000)
+                step.custom_target_value_low = low
+                step.custom_target_value_high = high if high > 0 else low
             elif 'tempo' in cel.lower():
                 step.target_type = WorkoutStepTarget.SPEED
                 speed1 = 1000.0 / (v1 * 60.0) if v1 else 0
