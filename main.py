@@ -1025,26 +1025,26 @@ def generate_fit_workout(workout_data):
                 step.custom_target_value_low = low
                 step.custom_target_value_high = high if high > 0 else low
             elif 'tempo' in cel.lower():
-            # Oblicz prędkości w m/s (dzieląc dystans 1000m przez sekundy), obsługując brak danych
-            spd1 = 1000.0 / (float(v1) * 60.0) if v1 else 0
-            spd2 = 1000.0 / (float(v2) * 60.0) if v2 else 0
-            
-            # Jeśli podano obie wartości, stwórz poprawne widełki mm/s
-            if spd1 > 0 and spd2 > 0:
-                step.target_type = WorkoutStepTarget.SPEED
-                step.custom_target_value_low = int(min(spd1, spd2) * 1000)
-                step.custom_target_value_high = int(max(spd1, spd2) * 1000)
-            # Jeśli podano tylko jedną, stwórz punkt lub ultra-wąskie widełki (+1mm/s)
-            elif spd1 > 0 or spd2 > 0:
-                step.target_type = WorkoutStepTarget.SPEED
-                val = spd1 if spd1 > 0 else spd2
-                # Niektóre zegarki wolą range, więc dajemy low=val, high=val+1
-                step.custom_target_value_low = int(val * 1000)
-                step.custom_target_value_high = int(val * 1000) + 1 
-            # Brak danych w obu polach - cel otwarty (OPEN)
-            else:
-                step.target_type = WorkoutStepTarget.OPEN
-                step.target_value = 0
+                # Oblicz prędkości w m/s (dzieląc dystans 1000m przez sekundy), obsługując brak danych
+                spd1 = 1000.0 / (float(v1) * 60.0) if v1 else 0
+                spd2 = 1000.0 / (float(v2) * 60.0) if v2 else 0
+                
+                # Jeśli podano obie wartości, stwórz poprawne widełki mm/s
+                if spd1 > 0 and spd2 > 0:
+                    step.target_type = WorkoutStepTarget.SPEED
+                    step.custom_target_value_low = int(min(spd1, spd2) * 1000)
+                    step.custom_target_value_high = int(max(spd1, spd2) * 1000)
+                # Jeśli podano tylko jedną, stwórz punkt lub ultra-wąskie widełki (+1mm/s)
+                elif spd1 > 0 or spd2 > 0:
+                    step.target_type = WorkoutStepTarget.SPEED
+                    val = spd1 if spd1 > 0 else spd2
+                    # Niektóre zegarki wolą range, więc dajemy low=val, high=val+1
+                    step.custom_target_value_low = int(val * 1000)
+                    step.custom_target_value_high = int(val * 1000) + 1 
+                # Brak danych w obu polach - cel otwarty (OPEN)
+                else:
+                    step.target_type = WorkoutStepTarget.OPEN
+                    step.target_value = 0
             elif 'tętno' in cel.lower() or 'hr' in cel.lower():
                 step.target_type = WorkoutStepTarget.HEART_RATE
                 step.custom_target_value_low = int(v1) + 100 if v1 else 100
