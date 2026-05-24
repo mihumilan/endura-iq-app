@@ -984,11 +984,21 @@ def generate_fit_workout(workout_data):
         file_id_msg.time_created = round(datetime.datetime.now().timestamp() * 1000)
         builder.add(file_id_msg)
         
-        # 2. Główny komunikat treningu
+            # 2. Główny komunikat treningu
         workout_msg = WorkoutMessage()
         workout_msg.workout_name = workout_data.get('tytul', 'Trening')[:15]
-        workout_msg.sport = Sport.CYCLING if "Rower" in workout_data.get('dyscyplina', '') else Sport.RUNNING
+        
+        # Najpierw pobieramy kroki, żeby móc je sprawdzić i policzyć
         kroki = workout_data.get('kroki', [])
+        
+        # Automatyczne wykrywanie: jeśli w jakimkolwiek kroku zaplanowano 'tempo', ustawiamy bieganie
+        is_running = any('tempo' in step.get('tryb', '').lower() for step in kroki)
+        
+        if is_running:
+            workout_msg.sport = Sport.RUNNING
+        else:
+            workout_msg.sport = Sport.CYCLING
+            
         workout_msg.num_valid_steps = len(kroki)
         builder.add(workout_msg)
     
