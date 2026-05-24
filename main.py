@@ -1000,56 +1000,56 @@ def generate_fit_workout(workout_data):
             return Intensity.ACTIVE
     
         # 3. Kroki treningowe z Twojej aplikacji
-        # 3. Kroki treningowe z Twojej aplikacji
-    for i, step_data in enumerate(kroki):
-        step = WorkoutStepMessage()
-        step.message_index = i
-        step.workout_step_name = step_data.get('typ', 'Krok')[:15]
-        step.intensity = get_intensity(step_data.get('typ', ''))
-        step.duration_type = WorkoutStepDuration.TIME
-        step.duration_value = int(step_data.get('czas_total_sec', 0)) * 1000
-
-        cel = step_data.get('tryb', '')
-        v1 = step_data.get('val_min', 0)
-        v2 = step_data.get('val_max', 0)
-
-        # TO JEST KLUCZ DO SUKCESU Z GARMINEM:
-        # Musimy wymusić "0" w głównym celu, żeby zegarek odblokował czytanie widełek!
-        step.target_value = 0
-
-        if 'waty' in cel.lower():
-            step.target_type = WorkoutStepTarget.POWER
-            low = int(float(v1)) if v1 else 0
-            high = int(float(v2)) if v2 else low
-            step.custom_target_value_low = low + 1000
-            step.custom_target_value_high = (high + 1000) if high > 0 else (low + 1000)
-        elif '%ftp' in cel.lower():
-            step.target_type = WorkoutStepTarget.POWER
-            low = int(float(v1)) if v1 else 0
-            high = int(float(v2)) if v2 else low
-            step.custom_target_value_low = low
-            step.custom_target_value_high = high if high > 0 else low
-        elif 'tempo' in cel.lower():
-            spd1 = 1000.0 / (float(v1) * 60.0) if v1 else 0
-            spd2 = 1000.0 / (float(v2) * 60.0) if v2 else 0
-            step.target_type = WorkoutStepTarget.SPEED
-            if spd1 > 0 and spd2 > 0:
-                step.custom_target_value_low = int(min(spd1, spd2) * 1000)
-                step.custom_target_value_high = int(max(spd1, spd2) * 1000)
-            elif spd1 > 0 or spd2 > 0:
-                val = spd1 if spd1 > 0 else spd2
-                step.custom_target_value_low = int(val * 1000)
-                step.custom_target_value_high = int(val * 1000) + 1 
+        
+        for i, step_data in enumerate(kroki):
+            step = WorkoutStepMessage()
+            step.message_index = i
+            step.workout_step_name = step_data.get('typ', 'Krok')[:15]
+            step.intensity = get_intensity(step_data.get('typ', ''))
+            step.duration_type = WorkoutStepDuration.TIME
+            step.duration_value = int(step_data.get('czas_total_sec', 0)) * 1000
+    
+            cel = step_data.get('tryb', '')
+            v1 = step_data.get('val_min', 0)
+            v2 = step_data.get('val_max', 0)
+    
+            # TO JEST KLUCZ DO SUKCESU Z GARMINEM:
+            # Musimy wymusić "0" w głównym celu, żeby zegarek odblokował czytanie widełek!
+            step.target_value = 0
+    
+            if 'waty' in cel.lower():
+                step.target_type = WorkoutStepTarget.POWER
+                low = int(float(v1)) if v1 else 0
+                high = int(float(v2)) if v2 else low
+                step.custom_target_value_low = low + 1000
+                step.custom_target_value_high = (high + 1000) if high > 0 else (low + 1000)
+            elif '%ftp' in cel.lower():
+                step.target_type = WorkoutStepTarget.POWER
+                low = int(float(v1)) if v1 else 0
+                high = int(float(v2)) if v2 else low
+                step.custom_target_value_low = low
+                step.custom_target_value_high = high if high > 0 else low
+            elif 'tempo' in cel.lower():
+                spd1 = 1000.0 / (float(v1) * 60.0) if v1 else 0
+                spd2 = 1000.0 / (float(v2) * 60.0) if v2 else 0
+                step.target_type = WorkoutStepTarget.SPEED
+                if spd1 > 0 and spd2 > 0:
+                    step.custom_target_value_low = int(min(spd1, spd2) * 1000)
+                    step.custom_target_value_high = int(max(spd1, spd2) * 1000)
+                elif spd1 > 0 or spd2 > 0:
+                    val = spd1 if spd1 > 0 else spd2
+                    step.custom_target_value_low = int(val * 1000)
+                    step.custom_target_value_high = int(val * 1000) + 1 
+                else:
+                    step.target_type = WorkoutStepTarget.OPEN
+            elif 'tętno' in cel.lower() or 'hr' in cel.lower():
+                step.target_type = WorkoutStepTarget.HEART_RATE
+                step.custom_target_value_low = int(v1) + 100 if v1 else 100
+                step.custom_target_value_high = int(v2) + 100 if v2 else 100
             else:
                 step.target_type = WorkoutStepTarget.OPEN
-        elif 'tętno' in cel.lower() or 'hr' in cel.lower():
-            step.target_type = WorkoutStepTarget.HEART_RATE
-            step.custom_target_value_low = int(v1) + 100 if v1 else 100
-            step.custom_target_value_high = int(v2) + 100 if v2 else 100
-        else:
-            step.target_type = WorkoutStepTarget.OPEN
-
-        builder.add(step)
+    
+            builder.add(step)
     
         # 4. Zapis do pliku binarnego
         fit_file = builder.build()
